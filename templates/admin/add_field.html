@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Scripter - Add Form Field{% endblock %}
+
+{% block content %}
+<h1 class="title">{% if field %}Edit{% else %}Add{% endif %} Form Field</h1>
+<h2 class="subtitle">Script: {{ script.name }}</h2>
+
+<div class="box">
+    <form method="POST" action="{{ url_for('add_field', script_id=script.id) }}{% if field %}?edit={{ field.id }}{% endif %}">
+        <div class="field">
+            <label class="label">Field Name (Variable)</label>
+            <div class="control">
+                <input class="input" type="text" name="name" value="{{ field.name if field else '' }}" required>
+            </div>
+            <p class="help">This is the variable name used in the template (e.g., "first_name")</p>
+        </div>
+        
+        <div class="field">
+            <label class="label">Display Label</label>
+            <div class="control">
+                <input class="input" type="text" name="label" value="{{ field.label if field else '' }}" required>
+            </div>
+            <p class="help">Label shown to users (e.g., "First Name")</p>
+        </div>
+        
+        <div class="field">
+            <label class="label">Field Type</label>
+            <div class="control">
+                <div class="select">
+                    <select name="field_type" id="field-type">
+                        <option value="text" {% if field and field.field_type == 'text' %}selected{% endif %}>Text</option>
+                        <option value="textarea" {% if field and field.field_type == 'textarea' %}selected{% endif %}>Text Area</option>
+                        <option value="number" {% if field and field.field_type == 'number' %}selected{% endif %}>Number</option>
+                        <option value="email" {% if field and field.field_type == 'email' %}selected{% endif %}>Email</option>
+                        <option value="date" {% if field and field.field_type == 'date' %}selected{% endif %}>Date</option>
+                        <option value="select" {% if field and field.field_type == 'select' %}selected{% endif %}>Dropdown</option>
+                        <option value="checkbox" {% if field and field.field_type == 'checkbox' %}selected{% endif %}>Checkbox</option>
+                        <option value="radio" {% if field and field.field_type == 'radio' %}selected{% endif %}>Radio Buttons</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <div class="field">
+            <div class="control">
+                <label class="checkbox">
+                    <input type="checkbox" name="required" {% if field and field.required %}checked{% endif %}>
+                    Required field
+                </label>
+            </div>
+        </div>
+        
+        <div class="field">
+            <label class="label">Default Value</label>
+            <div class="control">
+                <input class="input" type="text" name="default_value" value="{{ field.default_value if field else '' }}">
+            </div>
+        </div>
+        
+        <div class="field">
+            <label class="label">Help Text</label>
+            <div class="control">
+                <textarea class="textarea" name="help_text">{{ field.help_text if field else '' }}</textarea>
+            </div>
+            <p class="help">Explanatory text shown to users</p>
+        </div>
+        
+        <div id="options-container" class="field {% if not field or field.field_type not in ['select', 'radio', 'checkbox'] %}is-hidden{% endif %}">
+            <label class="label">Options</label>
+            <div class="control">
+                <textarea class="textarea" name="validation_rules" placeholder="One option per line">{{ field.validation_rules if field else '' }}</textarea>
+            </div>
+            <p class="help">For dropdown, radio buttons, or checkboxes. One option per line.</p>
+        </div>
+        
+        <div class="field">
+            <label class="label">Display Order</label>
+            <div class="control">
+                <input class="input" type="number" name="display_order" value="{{ field.display_order if field else 0 }}" min="0">
+            </div>
+        </div>
+        
+        <div class="field">
+            <label class="label">Conditional Logic</label>
+            <div class="control">
+                <textarea class="textarea" name="conditional_logic" placeholder="JSON format for conditional display rules">{{ field.conditional_logic if field else '' }}</textarea>
+            </div>
+            <p class="help">Advanced: JSON format for conditional display rules</p>
+        </div>
+        
+        <div class="field is-grouped">
+            <div class="control">
+                <button type="submit" class="button is-primary">
+                    {% if field %}Save Changes{% else %}Add Field{% endif %}
+                </button>
+            </div>
+            <div class="control">
+                <a href="{{ url_for('manage_fields', script_id=script.id) }}" class="button is-light">Cancel</a>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const fieldTypeSelect = document.getElementById('field-type');
+        const optionsContainer = document.getElementById('options-container');
+        
+        fieldTypeSelect.addEventListener('change', function() {
+            const fieldType = this.value;
+            if (['select', 'radio', 'checkbox'].includes(fieldType)) {
+                optionsContainer.classList.remove('is-hidden');
+            } else {
+                optionsContainer.classList.add('is-hidden');
+            }
+        });
+    });
+</script>
+{% endblock %} 

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Server Error{% endblock %}
+
+{% block content %}
+<div class="columns">
+    <div class="column is-6 is-offset-3">
+        <div class="box has-text-centered">
+            <h1 class="title is-1">500</h1>
+            <h2 class="subtitle">Server Error</h2>
+            <p>Something went wrong on our end. Please try again later.</p>
+            <a href="{{ url_for('index') }}" class="button is-primary mt-4">
+                Return to Home
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Scripter - Initial Setup{% endblock %}
+
+{% block content %}
+<div class="columns">
+    <div class="column is-6 is-offset-3">
+        <div class="box">
+            <h1 class="title">Scripter Initial Setup</h1>
+            <p class="subtitle">Create database and admin user</p>
+            
+            <div class="notification is-warning">
+                <p><strong>Warning:</strong> This will initialize the database and create an admin user. 
+                If the database already exists, this will not overwrite existing data.</p>
+            </div>
+            
+            <form method="POST" action="{{ url_for('setup') }}">
+                <div class="field">
+                    <label class="label">Admin Username</label>
+                    <div class="control">
+                        <input class="input" type="text" name="username" value="admin" required>
+                    </div>
+                </div>
+                
+                <div class="field">
+                    <label class="label">Admin Email</label>
+                    <div class="control">
+                        <input class="input" type="email" name="email" value="admin@example.com" required>
+                    </div>
+                </div>
+                
+                <div class="field">
+                    <label class="label">Admin Password</label>
+                    <div class="control">
+                        <input class="input" type="password" name="password" value="admin123" required>
+                    </div>
+                    <p class="help">Default is "admin123" - please change this!</p>
+                </div>
+                
+                <div class="field">
+                    <div class="control">
+                        <button type="submit" class="button is-primary is-fullwidth">
+                            Initialize Database
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %} 

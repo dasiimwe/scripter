@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}Page Not Found{% endblock %}
+
+{% block content %}
+<div class="columns">
+    <div class="column is-6 is-offset-3">
+        <div class="box has-text-centered">
+            <h1 class="title is-1">404</h1>
+            <h2 class="subtitle">Page Not Found</h2>
+            <p>The page you're looking for doesn't exist.</p>
+            <a href="{{ url_for('index') }}" class="button is-primary mt-4">
+                Return to Home
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}{{ script.name }} - Result{% endblock %}
+
+{% block content %}
+<div class="columns">
+    <div class="column is-10 is-offset-1">
+        <div class="box">
+            <h1 class="title">{{ script.name }} - Generated Result</h1>
+            
+            <div class="buttons">
+                <a href="{{ url_for('download_submission', script_id=script.id, submission_id=submission.id) }}" class="button is-primary">
+                    <span class="icon">
+                        <i class="fas fa-download"></i>
+                    </span>
+                    <span>Download</span>
+                </a>
+                
+                <a href="{{ url_for('view_script', script_id=script.id) }}" class="button is-info">
+                    <span class="icon">
+                        <i class="fas fa-edit"></i>
+                    </span>
+                    <span>Edit Form</span>
+                </a>
+            </div>
+            
+            <div class="content output-container">
+                {% if script.template.output_format == 'html' %}
+                    {{ submission.output|safe }}
+                {% else %}
+                    <pre>{{ submission.output }}</pre>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block head_extra %}
+<style>
+    .output-container {
+        border: 1px solid #ddd;
+        padding: 20px;
+        margin-top: 20px;
+        background-color: #fff;
+    }
+    
+    pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+</style>
+{% endblock %} 

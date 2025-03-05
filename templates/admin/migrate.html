@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Scripter - Database Migration{% endblock %}
+
+{% block content %}
+<div class="columns">
+    <div class="column is-8 is-offset-2">
+        <h1 class="title">Database Migration</h1>
+        
+        <div class="notification is-warning">
+            <p><strong>Warning:</strong> Database migration can potentially cause data loss. 
+            Make sure you have a backup before proceeding.</p>
+        </div>
+        
+        {% if migration_log %}
+            <div class="box">
+                <h2 class="subtitle">Migration Log</h2>
+                <div class="content">
+                    <ul>
+                        {% for log_entry in migration_log %}
+                            <li>{{ log_entry }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        {% endif %}
+        
+        <div class="box">
+            <form method="POST" action="{{ url_for('migrate_database') }}">
+                <div class="field">
+                    <div class="control">
+                        <button type="submit" class="button is-primary">
+                            <span class="icon">
+                                <i class="fas fa-database"></i>
+                            </span>
+                            <span>Run Database Migration</span>
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+        
+        <div class="content">
+            <h3>What This Does</h3>
+            <p>This migration tool will:</p>
+            <ol>
+                <li>Create a backup of your current database</li>
+                <li>Create any missing tables in the database</li>
+                <li>Add any missing columns to existing tables</li>
+            </ol>
+            
+            <h3>When to Use</h3>
+            <p>Use this migration tool when:</p>
+            <ul>
+                <li>You've updated to a new version of the application</li>
+                <li>You're experiencing database-related errors</li>
+                <li>You need to add new features that require database changes</li>
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %} 

@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+
+{% block title %}Scripter - Edit Template{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+<style>
+    .CodeMirror {
+        height: 400px;
+        border: 1px solid #ddd;
+    }
+    .variable-tag {
+        cursor: pointer;
+        margin-right: 5px;
+        margin-bottom: 5px;
+    }
+    .variable-tag:hover {
+        background-color: #3e8ed0;
+        color: white;
+    }
+    .dropdown-content {
+        padding: 0.5rem;
+    }
+    .dropdown-item {
+        padding: 0.375rem 1rem;
+        cursor: pointer;
+    }
+    .dropdown-item:hover {
+        background-color: #f5f5f5;
+    }
+    .help-table td, .help-table th {
+        padding: 0.5rem;
+    }
+    .help-table code {
+        background-color: #f5f5f5;
+        padding: 0.2rem 0.4rem;
+        border-radius: 4px;
+    }
+    .template-tabs {
+        margin-bottom: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="title">Edit Template: {{ script.name }}</h1>
+
+<div class="tabs">
+    <ul>
+        <li><a href="{{ url_for('edit_script', script_id=script.id) }}">Details</a></li>
+        <li class="is-active"><a>Template</a></li>
+        <li><a href="{{ url_for('manage_fields', script_id=script.id) }}">Form Fields</a></li>
+    </ul>
+</div>
+
+<div class="tabs template-tabs is-boxed">
+    <ul>
+        <li class="is-active"><a data-target="editor-tab">Editor</a></li>
+        <li><a data-target="help-tab">Help</a></li>
+    </ul>
+</div>
+
+<div id="editor-tab" class="tab-content">
+    <div class="box">
+        <form method="POST" action="{{ url_for('edit_template', script_id=script.id) }}">
+            <input type="hidden" id="script-id" value="{{ script.id }}">
+            
+            <div class="field">
+                <label class="label">Template Content (Jinja2)</label>
+                <div class="field is-grouped">
+                    <div class="control is-expanded">
+                        <div class="dropdown" id="snippet-dropdown">
+                            <div class="dropdown-trigger">
+                                <button type="button" class="button is-info is-light" aria-haspopup="true" aria-controls="dropdown-menu">
+                                    <span>Insert Jinja2 Snippet</span>
+                                    <span class="icon is-small">
+                                        <i class="fas fa-angle-down" aria-hidden="true"></i>
+                                    </span>
+                                </button>
+                            </div>
+                            <div class="dropdown-menu" id="dropdown-menu" role="menu">
+                                <div class="dropdown-content">
+                                    {% for snippet in jinja_snippets %}
+                                    <a class="dropdown-item snippet-item" data-snippet="{{ snippet.code }}">
+                                        {{ snippet.name }}
+                                    </a>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="control">
+                    <textarea id="template-editor" name="content">{{ template.content }}</textarea>
+                </div>
+                <p class="help">Use {{ "{{ variable_name }}" }} syntax for variables</p>
+            </div>
+            
+            <div class="field">
+                <label class="label">Output Format</label>
+                <div class="control">
+                    <div class="select">
+                        <select name="output_format">
+                            <option value="html" {% if template.output_format == 'html' %}selected{% endif %}>HTML</option>
+                            <option value="text" {% if template.output_format == 'text' %}selected{% endif %}>Plain Text</option>
+                            <option value="markdown" {% if template.output_format == 'markdown' %}selected{% endif %}>Markdown</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="field">
+                <div class="control">
+                    <button id="detect-variables" type="button" class="button is-info">
+                        <span class="icon">
+                            <i class="fas fa-magic"></i>
+                        </span>
+                        <span>Detect Variables</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div id="detected-variables" class="is-hidden">
+                <h4 class="title is-5">Detected Variables</h4>
+                <div class="tags" id="variable-tags"></div>
+                
+                <div class="field">
+                    <div class="control">
+                        <button id="add-all-fields" type="button" class="button is-success">
+                            <span class="icon">
+                                <i class="fas fa-plus-circle"></i>
+                            </span>
+                            <span>Add All as Form Fields</span>
+                        </button>
+                    </div>
+                    <p class="help">Click on individual variables to add them as form fields, or click the button above to add all.</p>
+                </div>
+            </div>
+            
+            <div class="field is-grouped">
+                <div class="control">
+                    <button type="submit" class="button is-primary">Save Template</button>
+                </div>
+                <div class="control">
+                    <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-light">Cancel</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="help-tab" class="tab-content" style="display: none;">
+    <div class="box">
+        <h3 class="title is-4">Jinja2 Template Syntax</h3>
+        <table class="table is-bordered is-striped is-fullwidth help-table">
+            <thead>
+                <tr>
+                    <th>Feature</th>
+                    <th>Syntax</th>
+                    <th>Example</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Variables</td>
+                    <td><code>{{ "{{ variable_name }}" }}</code></td>
+                    <td>Hello, <code>{{ "{{ user_name }}" }}</code>!</td>
+                </tr>
+                <tr>
+                    <td>If Condition</td>
+                    <td>
+<pre><code>{% raw %}{% if condition %}
+    content
+{% endif %}{% endraw %}</code></pre>
+                    </td>
+                    <td>
+<pre><code>{% raw %}{% if age >= 18 %}
+    You are an adult.
+{% endif %}{% endraw %}</code></pre>
+                    </td>
+                </tr>
+                <tr>
+                    <td>If-Else</td>
+                    <td>
+<pre><code>{% raw %}{% if condition %}
+    content if true
+{% else %}
+    content if false
+{% endif %}{% endraw %}</code></pre>
+                    </td>
+                    <td>
+<pre><code>{% raw %}{% if is_member %}
+    Welcome back!
+{% else %}
+    Please sign up.
+{% endif %}{% endraw %}</code></pre>
+                    </td>
+                </tr>
+                <tr>
+                    <td>For Loop</td>
+                    <td>
+<pre><code>{% raw %}{% for item in items %}
+    {{ item }}
+{% endfor %}{% endraw %}</code></pre>
+                    </td>
+                    <td>
+<pre><code>{% raw %}{% for product in products %}
+    - {{ product.name }}: ${{ product.price }}
+{% endfor %}{% endraw %}</code></pre>
+                    </td>
+                </tr>
+                <tr>
+                    <td>Comments</td>
+                    <td>
+<pre><code>{% raw %}{# This is a comment #}{% endraw %}</code></pre>
+                    </td>
+                    <td>
+<pre><code>{% raw %}{# This text won't appear in the output #}{% endraw %}</code></pre>
+                    </td>
+                </tr>
+                <tr>
+                    <td>Filters</td>
+                    <td><code>{{ "{{ variable | filter }}" }}</code></td>
+                    <td><code>{{ "{{ name | upper }}" }}</code> (converts to uppercase)</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/jinja2/jinja2.min.js"></script>
+<script src="{{ url_for('static', filename='js/template-editor.js') }}"></script>
+{% endblock %} 

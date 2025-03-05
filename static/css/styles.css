@@ -1,0 +1,10 @@
+/* Custom styles for Scripter application */
+.footer {
+    margin-top: 2rem;
+}
+
+.notification .delete {
+    position: relative;
+    right: 0.5rem;
+    top: 0.5rem;
+} 

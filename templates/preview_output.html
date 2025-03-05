@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}{{ script.name }} - Preview{% endblock %}
+
+{% block content %}
+<div class="columns">
+    <div class="column is-8 is-offset-2">
+        <h1 class="title">Preview: {{ script.name }}</h1>
+        
+        <div class="box">
+            <div class="buttons">
+                <a href="{{ url_for('download_output', script_id=script.id, submission_id=submission_id) }}" class="button is-primary">
+                    <span class="icon">
+                        <i class="fas fa-download"></i>
+                    </span>
+                    <span>Download</span>
+                </a>
+                <a href="{{ url_for('view_script', script_id=script.id) }}" class="button is-light">
+                    <span class="icon">
+                        <i class="fas fa-edit"></i>
+                    </span>
+                    <span>Edit Form</span>
+                </a>
+            </div>
+            
+            <div class="content">
+                <div class="notification is-light">
+                    <h3 class="title is-5">Generated Output</h3>
+                    <hr>
+                    {% if script.template.output_format == 'html' %}
+                        {{ output|safe }}
+                    {% else %}
+                        <pre>{{ output }}</pre>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

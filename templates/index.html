@@ -1,0 +1,411 @@
+{% extends "base.html" %}
+
+{% block title %}Scripter - Home{% endblock %}
+
+{% block head_extra %}
+<style>
+    .search-container {
+        margin-bottom: 1.5rem;
+    }
+    .pagination-container {
+        margin-top: 1.5rem;
+    }
+    .sort-icon {
+        margin-left: 0.25rem;
+        cursor: pointer;
+    }
+    .sort-icon:hover {
+        color: #3273dc;
+    }
+    .script-description {
+        max-width: 300px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .tag-list {
+        max-width: 200px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1rem;
+    }
+    .empty-state-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        color: #dbdbdb;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="title">Available Scripts</h1>
+    
+    <div class="search-container">
+        <div class="field has-addons">
+            <div class="control is-expanded">
+                <input class="input" type="text" id="search-input" placeholder="Search scripts by name, description, or tags...">
+            </div>
+            <div class="control">
+                <button class="button is-info" id="search-button">
+                    <span class="icon">
+                        <i class="fas fa-search"></i>
+                    </span>
+                    <span>Search</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    {% if scripts %}
+    <div class="table-container">
+        <table class="table is-fullwidth is-striped is-hoverable">
+            <thead>
+                <tr>
+                    <th>
+                        Name
+                        <span class="icon sort-icon" data-sort="name">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Description
+                        <span class="icon sort-icon" data-sort="description">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Category
+                        <span class="icon sort-icon" data-sort="category">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Tags
+                    </th>
+                    <th>
+                        Created
+                        <span class="icon sort-icon" data-sort="created_at">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="scripts-table-body">
+                {% for script in scripts %}
+                <tr class="script-row" 
+                    data-name="{{ script.name|lower }}" 
+                    data-description="{{ script.description|lower }}" 
+                    data-category="{{ script.category|lower }}" 
+                    data-tags="{{ script.tags|lower }}"
+                    data-created="{{ script.created_at.strftime('%Y-%m-%d') }}">
+                    <td>{{ script.name }}</td>
+                    <td>
+                        <div class="script-description" title="{{ script.description }}">
+                            {{ script.description or "No description" }}
+                        </div>
+                    </td>
+                    <td>{{ script.category or "Uncategorized" }}</td>
+                    <td>
+                        <div class="tag-list" title="{{ script.tags }}">
+                            {% if script.tags %}
+                                {% for tag in script.tags.split(',') %}
+                                <span class="tag is-info is-light">{{ tag.strip() }}</span>
+                                {% endfor %}
+                            {% else %}
+                                <span class="tag is-light">No tags</span>
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td>{{ script.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td>
+                        <a href="{{ url_for('view_script', script_id=script.id) }}" class="button is-small is-primary">
+                            <span class="icon">
+                                <i class="fas fa-play"></i>
+                            </span>
+                            <span>Use</span>
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="pagination-container">
+        <nav class="pagination is-centered" role="navigation" aria-label="pagination">
+            <a class="pagination-previous" id="prev-page" disabled>Previous</a>
+            <a class="pagination-next" id="next-page">Next</a>
+            <ul class="pagination-list" id="pagination-numbers">
+                <!-- Pagination numbers will be inserted here by JavaScript -->
+            </ul>
+        </nav>
+        <div class="has-text-centered mt-2">
+            <div class="select is-small">
+                <select id="items-per-page">
+                    <option value="10">10 per page</option>
+                    <option value="25">25 per page</option>
+                    <option value="50">50 per page</option>
+                    <option value="100">100 per page</option>
+                </select>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i class="fas fa-file-alt"></i>
+        </div>
+        <h3 class="title is-4">No Scripts Available</h3>
+        <p class="subtitle">There are currently no active scripts available.</p>
+        {% if current_user.is_authenticated and current_user.is_admin %}
+        <a href="{{ url_for('create_script') }}" class="button is-primary">
+            <span class="icon">
+                <i class="fas fa-plus"></i>
+            </span>
+            <span>Create New Script</span>
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Variables for pagination
+    const itemsPerPageSelect = document.getElementById('items-per-page');
+    const itemsPerPage = parseInt(localStorage.getItem('scriptsPerPage') || '10');
+    itemsPerPageSelect.value = itemsPerPage.toString();
+    let currentPage = 1;
+    
+    // Get all script rows
+    const scriptRows = document.querySelectorAll('.script-row');
+    const totalItems = scriptRows.length;
+    
+    // Search functionality
+    const searchInput = document.getElementById('search-input');
+    const searchButton = document.getElementById('search-button');
+    
+    function performSearch() {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        
+        scriptRows.forEach(row => {
+            const name = row.getAttribute('data-name');
+            const description = row.getAttribute('data-description');
+            const category = row.getAttribute('data-category');
+            const tags = row.getAttribute('data-tags');
+            
+            // Check if any field contains the search term
+            const matches = 
+                name.includes(searchTerm) || 
+                description.includes(searchTerm) || 
+                category.includes(searchTerm) || 
+                tags.includes(searchTerm);
+            
+            // Set display property based on match
+            row.classList.toggle('is-hidden', !matches);
+        });
+        
+        // Reset to first page after search
+        currentPage = 1;
+        updatePagination();
+    }
+    
+    searchButton.addEventListener('click', performSearch);
+    searchInput.addEventListener('keyup', function(e) {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    });
+    
+    // Sorting functionality
+    const sortIcons = document.querySelectorAll('.sort-icon');
+    let currentSort = { column: null, direction: 'asc' };
+    
+    sortIcons.forEach(icon => {
+        icon.addEventListener('click', function() {
+            const column = this.getAttribute('data-sort');
+            
+            // Toggle sort direction if clicking the same column
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'asc';
+            }
+            
+            // Update sort icons
+            sortIcons.forEach(i => {
+                const iconElement = i.querySelector('i');
+                if (i.getAttribute('data-sort') === column) {
+                    iconElement.className = currentSort.direction === 'asc' ? 
+                        'fas fa-sort-up' : 'fas fa-sort-down';
+                } else {
+                    iconElement.className = 'fas fa-sort';
+                }
+            });
+            
+            // Sort the rows
+            sortScripts(column, currentSort.direction);
+            
+            // Reset to first page after sorting
+            currentPage = 1;
+            updatePagination();
+        });
+    });
+    
+    function sortScripts(column, direction) {
+        const tbody = document.getElementById('scripts-table-body');
+        const rows = Array.from(scriptRows);
+        
+        rows.sort((a, b) => {
+            let valueA, valueB;
+            
+            if (column === 'name') {
+                valueA = a.getAttribute('data-name');
+                valueB = b.getAttribute('data-name');
+            } else if (column === 'description') {
+                valueA = a.getAttribute('data-description');
+                valueB = b.getAttribute('data-description');
+            } else if (column === 'category') {
+                valueA = a.getAttribute('data-category');
+                valueB = b.getAttribute('data-category');
+            } else if (column === 'created_at') {
+                valueA = a.getAttribute('data-created');
+                valueB = b.getAttribute('data-created');
+            }
+            
+            // Compare the values
+            if (valueA < valueB) {
+                return direction === 'asc' ? -1 : 1;
+            }
+            if (valueA > valueB) {
+                return direction === 'asc' ? 1 : -1;
+            }
+            return 0;
+        });
+        
+        // Reorder the rows in the DOM
+        rows.forEach(row => {
+            tbody.appendChild(row);
+        });
+    }
+    
+    // Pagination functionality
+    function updatePagination() {
+        const visibleRows = Array.from(scriptRows).filter(row => !row.classList.contains('is-hidden'));
+        const totalPages = Math.ceil(visibleRows.length / itemsPerPage);
+        
+        // Update pagination buttons
+        const prevPageBtn = document.getElementById('prev-page');
+        const nextPageBtn = document.getElementById('next-page');
+        
+        prevPageBtn.disabled = currentPage === 1;
+        nextPageBtn.disabled = currentPage === totalPages || totalPages === 0;
+        
+        // Generate pagination numbers
+        const paginationNumbers = document.getElementById('pagination-numbers');
+        paginationNumbers.innerHTML = '';
+        
+        // Determine range of page numbers to show
+        let startPage = Math.max(1, currentPage - 2);
+        let endPage = Math.min(totalPages, startPage + 4);
+        
+        // Adjust start if we're near the end
+        if (endPage - startPage < 4) {
+            startPage = Math.max(1, endPage - 4);
+        }
+        
+        // Add first page if not included
+        if (startPage > 1) {
+            addPageNumber(1);
+            if (startPage > 2) {
+                addEllipsis();
+            }
+        }
+        
+        // Add page numbers
+        for (let i = startPage; i <= endPage; i++) {
+            addPageNumber(i);
+        }
+        
+        // Add last page if not included
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                addEllipsis();
+            }
+            addPageNumber(totalPages);
+        }
+        
+        // Show/hide rows based on current page
+        visibleRows.forEach((row, index) => {
+            const shouldShow = index >= (currentPage - 1) * itemsPerPage && index < currentPage * itemsPerPage;
+            row.classList.toggle('is-hidden-pagination', !shouldShow);
+        });
+        
+        function addPageNumber(pageNum) {
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+            a.className = 'pagination-link' + (pageNum === currentPage ? ' is-current' : '');
+            a.setAttribute('aria-label', 'Page ' + pageNum);
+            a.textContent = pageNum;
+            a.addEventListener('click', () => {
+                currentPage = pageNum;
+                updatePagination();
+            });
+            li.appendChild(a);
+            paginationNumbers.appendChild(li);
+        }
+        
+        function addEllipsis() {
+            const li = document.createElement('li');
+            const span = document.createElement('span');
+            span.className = 'pagination-ellipsis';
+            span.innerHTML = '&hellip;';
+            li.appendChild(span);
+            paginationNumbers.appendChild(li);
+        }
+    }
+    
+    // Event listeners for pagination
+    document.getElementById('prev-page').addEventListener('click', function() {
+        if (currentPage > 1) {
+            currentPage--;
+            updatePagination();
+        }
+    });
+    
+    document.getElementById('next-page').addEventListener('click', function() {
+        const visibleRows = Array.from(scriptRows).filter(row => !row.classList.contains('is-hidden'));
+        const totalPages = Math.ceil(visibleRows.length / itemsPerPage);
+        
+        if (currentPage < totalPages) {
+            currentPage++;
+            updatePagination();
+        }
+    });
+    
+    itemsPerPageSelect.addEventListener('change', function() {
+        const newItemsPerPage = parseInt(this.value);
+        localStorage.setItem('scriptsPerPage', newItemsPerPage.toString());
+        currentPage = 1;
+        updatePagination();
+    });
+    
+    // Initial pagination setup
+    updatePagination();
+    
+    // Add custom CSS for pagination hidden items
+    const style = document.createElement('style');
+    style.textContent = '.is-hidden-pagination { display: none !important; }';
+    document.head.appendChild(style);
+});
+</script>
+{% endblock %} 

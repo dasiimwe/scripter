@@ -1,0 +1,298 @@
+{% extends "base.html" %}
+
+{% block title %}{{ script.name }} - Preview{% endblock %}
+
+{% block head_extra %}
+<style>
+    .preview-container {
+        border: 1px solid #ddd;
+        padding: 20px;
+        background-color: #fff;
+        height: 100%;
+        overflow-y: auto;
+    }
+    
+    .form-container, .output-container {
+        height: calc(100vh - 200px);
+        min-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .sticky-header {
+        position: sticky;
+        top: 0;
+        background-color: white;
+        padding: 10px 0;
+        z-index: 10;
+        border-bottom: 1px solid #eee;
+    }
+    
+    pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    
+    .loading {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+    
+    #loading-indicator {
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 1000;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="loading-indicator" class="notification is-info is-light">
+    <span class="icon">
+        <i class="fas fa-spinner fa-spin"></i>
+    </span>
+    <span>Generating script...</span>
+</div>
+
+<div class="columns">
+    <div class="column is-12">
+        <div class="sticky-header">
+            <h1 class="title">{{ script.name }}</h1>
+            <p class="subtitle">{{ script.description }}</p>
+            
+            <div class="buttons">
+                <button id="generate-btn" class="button is-primary">
+                    <span class="icon">
+                        <i class="fas fa-sync-alt"></i>
+                    </span>
+                    <span>Generate Script</span>
+                </button>
+                
+                {% if submission_id %}
+                <a href="{{ url_for('download_submission', script_id=script.id, submission_id=submission_id) }}" class="button is-info">
+                    <span class="icon">
+                        <i class="fas fa-download"></i>
+                    </span>
+                    <span>Download</span>
+                </a>
+                {% endif %}
+                
+                <a href="{{ url_for('index') }}" class="button is-light">
+                    <span class="icon">
+                        <i class="fas fa-arrow-left"></i>
+                    </span>
+                    <span>Back to Scripts</span>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="columns">
+    <!-- Form Column -->
+    <div class="column is-6">
+        <div class="box form-container">
+            <h3 class="title is-4">Input Form</h3>
+            
+            <form id="script-form" method="POST" action="{{ url_for('view_script', script_id=script.id) }}">
+                {% for field in form_fields %}
+                <div class="field">
+                    <label class="label">
+                        {{ field.label }}
+                        {% if field.required %}
+                        <span class="has-text-danger">*</span>
+                        {% endif %}
+                    </label>
+                    
+                    <div class="control">
+                        {% if field.field_type == 'text' %}
+                            <input class="input" type="text" name="{{ field.name }}" 
+                                value="{{ form_data[field.name] or field.default_value or '' }}"
+                                {% if field.required %}required{% endif %}>
+                        
+                        {% elif field.field_type == 'textarea' %}
+                            <textarea class="textarea" name="{{ field.name }}" 
+                                {% if field.required %}required{% endif %}>{{ form_data[field.name] or field.default_value or '' }}</textarea>
+                        
+                        {% elif field.field_type == 'number' %}
+                            <input class="input" type="number" name="{{ field.name }}" 
+                                value="{{ form_data[field.name] or field.default_value or '' }}"
+                                {% if field.required %}required{% endif %}>
+                        
+                        {% elif field.field_type == 'email' %}
+                            <input class="input" type="email" name="{{ field.name }}" 
+                                value="{{ form_data[field.name] or field.default_value or '' }}"
+                                {% if field.required %}required{% endif %}>
+                        
+                        {% elif field.field_type == 'date' %}
+                            <input class="input" type="date" name="{{ field.name }}" 
+                                value="{{ form_data[field.name] or field.default_value or '' }}"
+                                {% if field.required %}required{% endif %}>
+                        
+                        {% elif field.field_type == 'select' %}
+                            <div class="select">
+                                <select name="{{ field.name }}" {% if field.required %}required{% endif %}>
+                                    <option value="">Select an option</option>
+                                    {% if field.validation_rules %}
+                                        {% for option in field.validation_rules.split(',') %}
+                                            <option value="{{ option.strip() }}" 
+                                                {% if form_data[field.name] == option.strip() or (not form_data[field.name] and field.default_value == option.strip()) %}selected{% endif %}>
+                                                {{ option.strip() }}
+                                            </option>
+                                        {% endfor %}
+                                    {% endif %}
+                                </select>
+                            </div>
+                        
+                        {% elif field.field_type == 'checkbox' %}
+                            <label class="checkbox">
+                                <input type="checkbox" name="{{ field.name }}" value="yes"
+                                    {% if form_data[field.name] == 'yes' or (not form_data[field.name] and field.default_value == 'yes') %}checked{% endif %}>
+                                {{ field.help_text or 'Yes' }}
+                            </label>
+                        
+                        {% elif field.field_type == 'radio' %}
+                            {% if field.validation_rules %}
+                                {% for option in field.validation_rules.split(',') %}
+                                    <label class="radio">
+                                        <input type="radio" name="{{ field.name }}" value="{{ option.strip() }}"
+                                            {% if form_data[field.name] == option.strip() or (not form_data[field.name] and field.default_value == option.strip()) %}checked{% endif %}
+                                            {% if loop.first and field.required %}required{% endif %}>
+                                        {{ option.strip() }}
+                                    </label>
+                                {% endfor %}
+                            {% endif %}
+                        
+                        {% else %}
+                            <input class="input" type="text" name="{{ field.name }}" 
+                                value="{{ form_data[field.name] or field.default_value or '' }}"
+                                {% if field.required %}required{% endif %}>
+                        {% endif %}
+                    </div>
+                    
+                    {% if field.help_text and field.field_type != 'checkbox' %}
+                        <p class="help">{{ field.help_text }}</p>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                
+                {% if not form_fields %}
+                    <div class="notification is-warning">
+                        <p>This script has no form fields defined yet.</p>
+                    </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+    
+    <!-- Output Column -->
+    <div class="column is-6">
+        <div class="box output-container">
+            <h3 class="title is-4">Generated Script</h3>
+            
+            <div id="output-content" class="content preview-container">
+                {% if output %}
+                    {% if script.template.output_format == 'html' %}
+                        {{ output|safe }}
+                    {% else %}
+                        <pre>{{ output }}</pre>
+                    {% endif %}
+                {% else %}
+                    <div class="notification is-info">
+                        <p>Fill out the form and click "Generate Script" to see the output here.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.getElementById('script-form');
+        const generateBtn = document.getElementById('generate-btn');
+        const outputContent = document.getElementById('output-content');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        
+        // Function to show loading state
+        function showLoading() {
+            loadingIndicator.style.display = 'block';
+            form.classList.add('loading');
+            outputContent.classList.add('loading');
+        }
+        
+        // Function to hide loading state
+        function hideLoading() {
+            loadingIndicator.style.display = 'none';
+            form.classList.remove('loading');
+            outputContent.classList.remove('loading');
+        }
+        
+        // Handle form submission via AJAX
+        generateBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Show loading indicator
+            showLoading();
+            
+            // Get form data
+            const formData = new FormData(form);
+            
+            // Send AJAX request
+            fetch('{{ url_for("view_script", script_id=script.id) }}', {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                
+                if (data.success) {
+                    // Update the output content
+                    if ('{{ script.template.output_format }}' === 'html') {
+                        outputContent.innerHTML = data.output;
+                    } else {
+                        outputContent.innerHTML = '<pre>' + data.output + '</pre>';
+                    }
+                    
+                    // Update download link if available
+                    const downloadLinks = document.querySelectorAll('a[href*="download_submission"]');
+                    if (downloadLinks.length > 0) {
+                        downloadLinks.forEach(link => {
+                            link.href = '{{ url_for("download_submission", script_id=script.id, submission_id=0) }}'.replace('0', data.submission_id);
+                        });
+                    } else {
+                        // Add download button if it doesn't exist
+                        const buttonsContainer = document.querySelector('.buttons');
+                        const downloadBtn = document.createElement('a');
+                        downloadBtn.href = '{{ url_for("download_submission", script_id=script.id, submission_id=0) }}'.replace('0', data.submission_id);
+                        downloadBtn.className = 'button is-info';
+                        downloadBtn.innerHTML = '<span class="icon"><i class="fas fa-download"></i></span><span>Download</span>';
+                        buttonsContainer.insertBefore(downloadBtn, buttonsContainer.children[1]);
+                    }
+                    
+                    // Update URL with submission ID without reloading the page
+                    const newUrl = new URL(window.location.href);
+                    newUrl.searchParams.set('load_submission', data.submission_id);
+                    window.history.pushState({}, '', newUrl);
+                } else {
+                    // Show error message
+                    outputContent.innerHTML = '<div class="notification is-danger"><p>Error: ' + data.error + '</p></div>';
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Error:', error);
+                outputContent.innerHTML = '<div class="notification is-danger"><p>An error occurred while generating the script. Please try again.</p></div>';
+            });
+        });
+    });
+</script>
+{% endblock %} 

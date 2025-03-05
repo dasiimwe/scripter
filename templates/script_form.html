@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+
+{% block title %}{{ script.name }}{% endblock %}
+
+{% block content %}
+<div class="columns">
+    <div class="column is-8 is-offset-2">
+        <h1 class="title">{{ script.name }}</h1>
+        <p class="subtitle">{{ script.description }}</p>
+        
+        <div class="box">
+            <form method="POST" action="{{ url_for('view_script', script_id=script.id) }}">
+                {% for field in form_fields %}
+                <div class="field">
+                    <label class="label">
+                        {{ field.label }}
+                        {% if field.required %}
+                        <span class="has-text-danger">*</span>
+                        {% endif %}
+                    </label>
+                    
+                    <div class="control">
+                        {% if field.field_type == 'text' %}
+                            <input class="input" type="text" name="{{ field.name }}" 
+                                value="{{ field.default_value or '' }}"
+                                {% if field.required %}required{% endif %}>
+                        
+                        {% elif field.field_type == 'textarea' %}
+                            <textarea class="textarea" name="{{ field.name }}" 
+                                {% if field.required %}required{% endif %}>{{ field.default_value or '' }}</textarea>
+                        
+                        {% elif field.field_type == 'number' %}
+                            <input class="input" type="number" name="{{ field.name }}" 
+                                value="{{ field.default_value or '' }}"
+                                {% if field.required %}required{% endif %}>
+                        
+                        {% elif field.field_type == 'email' %}
+                            <input class="input" type="email" name="{{ field.name }}" 
+                                value="{{ field.default_value or '' }}"
+                                {% if field.required %}required{% endif %}>
+                        
+                        {% elif field.field_type == 'date' %}
+                            <input class="input" type="date" name="{{ field.name }}" 
+                                value="{{ field.default_value or '' }}"
+                                {% if field.required %}required{% endif %}>
+                        
+                        {% elif field.field_type == 'select' %}
+                            <div class="select">
+                                <select name="{{ field.name }}" {% if field.required %}required{% endif %}>
+                                    <option value="">Select an option</option>
+                                    {% if field.validation_rules %}
+                                        {% for option in field.validation_rules.split(',') %}
+                                            <option value="{{ option.strip() }}" 
+                                                {% if field.default_value == option.strip() %}selected{% endif %}>
+                                                {{ option.strip() }}
+                                            </option>
+                                        {% endfor %}
+                                    {% endif %}
+                                </select>
+                            </div>
+                        
+                        {% elif field.field_type == 'checkbox' %}
+                            <label class="checkbox">
+                                <input type="checkbox" name="{{ field.name }}" value="yes"
+                                    {% if field.default_value == 'yes' %}checked{% endif %}>
+                                {{ field.help_text or 'Yes' }}
+                            </label>
+                        
+                        {% elif field.field_type == 'radio' %}
+                            {% if field.validation_rules %}
+                                {% for option in field.validation_rules.split(',') %}
+                                    <label class="radio">
+                                        <input type="radio" name="{{ field.name }}" value="{{ option.strip() }}"
+                                            {% if field.default_value == option.strip() %}checked{% endif %}
+                                            {% if loop.first and field.required %}required{% endif %}>
+                                        {{ option.strip() }}
+                                    </label>
+                                {% endfor %}
+                            {% endif %}
+                        
+                        {% else %}
+                            <input class="input" type="text" name="{{ field.name }}" 
+                                value="{{ field.default_value or '' }}"
+                                {% if field.required %}required{% endif %}>
+                        {% endif %}
+                    </div>
+                    
+                    {% if field.help_text and field.field_type != 'checkbox' %}
+                        <p class="help">{{ field.help_text }}</p>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                
+                {% if form_fields %}
+                    <div class="field">
+                        <div class="control">
+                            <button type="submit" class="button is-primary">
+                                Generate Script
+                            </button>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="notification is-warning">
+                        <p>This script has no form fields defined yet.</p>
+                    </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %} 
