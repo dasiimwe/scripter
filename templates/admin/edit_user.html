@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Edit' if user else 'Add' }} User{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="title">{{ 'Edit' if user else 'Add' }} User</h1>
+    
+    <div class="box">
+        <form method="POST">
+            {{ form.csrf_token }}
+            
+            <div class="field">
+                <label class="label">Username</label>
+                <div class="control">
+                    {{ form.username(class="input") }}
+                </div>
+                {% if form.username.errors %}
+                <p class="help is-danger">{{ form.username.errors[0] }}</p>
+                {% endif %}
+            </div>
+            
+            <div class="field">
+                <label class="label">Email</label>
+                <div class="control">
+                    {{ form.email(class="input") }}
+                </div>
+                {% if form.email.errors %}
+                <p class="help is-danger">{{ form.email.errors[0] }}</p>
+                {% endif %}
+            </div>
+            
+            <div class="field">
+                <label class="label">Full Name</label>
+                <div class="control">
+                    {{ form.full_name(class="input") }}
+                </div>
+                {% if form.full_name.errors %}
+                <p class="help is-danger">{{ form.full_name.errors[0] }}</p>
+                {% endif %}
+            </div>
+            
+            <div class="field">
+                <label class="label">Authentication Type</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        {{ form.auth_type() }}
+                    </div>
+                </div>
+                <p class="help">
+                    Local users authenticate with a password stored in the system.
+                    TACACS+ users authenticate against the configured TACACS+ server.
+                </p>
+            </div>
+            
+            <div class="field password-field">
+                <label class="label">Password</label>
+                <div class="control">
+                    {{ form.password(class="input") }}
+                </div>
+                {% if form.password.errors %}
+                <p class="help is-danger">{{ form.password.errors[0] }}</p>
+                {% else %}
+                <p class="help">
+                    {% if user %}
+                    Leave blank to keep current password.
+                    {% else %}
+                    Required for local authentication.
+                    {% endif %}
+                </p>
+                {% endif %}
+            </div>
+            
+            <div class="field password-field">
+                <label class="label">Confirm Password</label>
+                <div class="control">
+                    {{ form.confirm_password(class="input") }}
+                </div>
+                {% if form.confirm_password.errors %}
+                <p class="help is-danger">{{ form.confirm_password.errors[0] }}</p>
+                {% endif %}
+            </div>
+            
+            <div class="field">
+                <div class="control">
+                    <label class="checkbox">
+                        {{ form.is_admin() }}
+                        Administrator
+                    </label>
+                </div>
+                <p class="help">Administrators can manage scripts, users, and system settings.</p>
+            </div>
+            
+            <div class="field">
+                <div class="control">
+                    <label class="checkbox">
+                        {{ form.is_active() }}
+                        Active
+                    </label>
+                </div>
+                <p class="help">Inactive users cannot log in to the system.</p>
+            </div>
+            
+            <div class="field is-grouped">
+                <div class="control">
+                    <button type="submit" class="button is-primary">
+                        {{ 'Update' if user else 'Create' }} User
+                    </button>
+                </div>
+                <div class="control">
+                    <a href="{{ url_for('admin_users') }}" class="button is-light">
+                        Cancel
+                    </a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const authTypeSelect = document.getElementById('auth_type');
+    const passwordFields = document.querySelectorAll('.password-field');
+    
+    function togglePasswordFields() {
+        if (authTypeSelect.value === 'tacacs') {
+            passwordFields.forEach(field => {
+                field.style.display = 'none';
+            });
+        } else {
+            passwordFields.forEach(field => {
+                field.style.display = '';
+            });
+        }
+    }
+    
+    authTypeSelect.addEventListener('change', togglePasswordFields);
+    togglePasswordFields(); // Run once on page load
+});
+</script>
+{% endblock %} 

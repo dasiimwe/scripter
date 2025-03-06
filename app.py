@@ -8,6 +8,11 @@ import os
 import uuid
 import sqlalchemy
 import json
+from flask_wtf import FlaskForm
+from wtforms import StringField, PasswordField, BooleanField, SelectField, TextAreaField
+from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional
+import tacacs_plus
+from tacacs_plus.client import TACACSClient
 # from flask_wtf.csrf import CSRFProtect
 
 # Create instance directory if it doesn't exist
@@ -24,7 +29,7 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-for-testing')
 db_path = os.path.join(instance_path, 'scripter.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['WTF_CSRF_ENABLED'] = False  # Disable CSRF for debugging
+app.config['WTF_CSRF_ENABLED'] = False  # Disable CSRF for the entire application
 
 # Initialize extensions
 db = SQLAlchemy(app)
@@ -37,11 +42,15 @@ login_manager.login_message_category = 'info'
 # Data Models
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
+    username = db.Column(db.String(64), unique=True, index=True)
+    email = db.Column(db.String(120), unique=True, index=True)
     password_hash = db.Column(db.String(128))
     is_admin = db.Column(db.Boolean, default=False)
+    is_active = db.Column(db.Boolean, default=True)
+    auth_type = db.Column(db.String(20), default='local')  # 'local' or 'tacacs'
+    full_name = db.Column(db.String(100))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime)
     
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -71,7 +80,7 @@ class Template(db.Model):
     script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
     content = db.Column(db.Text, nullable=False)
     version = db.Column(db.Integer, default=1)
-    output_format = db.Column(db.String(20), default='html')
+    output_format = db.Column(db.String(20), default='Plain Text')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -100,6 +109,17 @@ class FormSubmission(db.Model):
     # Relationship
     user = db.relationship('User', backref='submissions')
 
+class AuthConfig(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    auth_type = db.Column(db.String(20), default='local')  # 'local' or 'tacacs'
+    tacacs_server = db.Column(db.String(255))
+    tacacs_port = db.Column(db.Integer, default=49)
+    tacacs_secret = db.Column(db.String(255))
+    tacacs_timeout = db.Column(db.Integer, default=10)
+    tacacs_service = db.Column(db.String(50), default='scripter')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 # User loader for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
@@ -120,43 +140,48 @@ def index():
 # Authentication routes
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    app.logger.info("Login route accessed")
-    
     if current_user.is_authenticated:
-        app.logger.info(f"User {current_user.username} already authenticated, redirecting to index")
         return redirect(url_for('index'))
     
-    # Check if database is initialized
-    try:
-        user_count = User.query.count()
-        app.logger.info(f"Found {user_count} users in database")
-        if user_count == 0:
-            app.logger.info("No users found, redirecting to setup")
-            flash('No users found. Please set up the application first.')
-            return redirect(url_for('setup'))
-    except Exception as e:
-        app.logger.error(f"Database error in login route: {str(e)}")
-        # If there's a database error, redirect to setup
-        flash('Database not initialized. Please set up the application first.')
-        return redirect(url_for('setup'))
-    
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        app.logger.info(f"Login attempt for user: {username}")
+    form = LoginForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(username=form.username.data).first()
+        auth_config = get_auth_config()
         
-        user = User.query.filter_by(username=username).first()
+        # Check if user exists and determine authentication method
+        if user and user.auth_type == 'tacacs':
+            # TACACS+ authentication
+            if authenticate_tacacs(form.username.data, form.password.data):
+                login_user(user, remember=form.remember_me.data)
+                user.last_login = datetime.utcnow()
+                db.session.commit()
+                return redirect(url_for('index'))
+        elif user and user.auth_type == 'local':
+            # Local authentication
+            if user.check_password(form.password.data):
+                login_user(user, remember=form.remember_me.data)
+                user.last_login = datetime.utcnow()
+                db.session.commit()
+                return redirect(url_for('index'))
+        elif not user and auth_config.auth_type == 'tacacs':
+            # Try TACACS+ for unknown users if it's the default auth method
+            if authenticate_tacacs(form.username.data, form.password.data):
+                # Create a new user account for this TACACS+ user
+                user = User(
+                    username=form.username.data,
+                    email=f"{form.username.data}@tacacs.local",  # Placeholder email
+                    auth_type='tacacs',
+                    is_active=True
+                )
+                db.session.add(user)
+                db.session.commit()
+                login_user(user, remember=form.remember_me.data)
+                return redirect(url_for('index'))
         
-        if user and user.check_password(password):
-            app.logger.info(f"Login successful for user: {username}")
-            login_user(user)
-            next_page = request.args.get('next')
-            return redirect(next_page or url_for('index'))
-        else:
-            app.logger.warning(f"Login failed for user: {username}")
-            flash('Invalid username or password')
+        flash('Invalid username or password')
+        return redirect(url_for('login'))
     
-    return render_template('login.html')
+    return render_template('login.html', form=form)
 
 @app.route('/logout')
 @login_required
@@ -167,13 +192,14 @@ def logout():
 # Admin routes
 @app.route('/admin')
 @login_required
-def admin_dashboard():
+def admin_dashboard_main():
     if not current_user.is_admin:
         flash('Access denied: Admin privileges required')
         return redirect(url_for('index'))
     
     scripts = Script.query.all()
-    return render_template('admin/dashboard.html', scripts=scripts)
+    submission_count = FormSubmission.query.count()
+    return render_template('admin/dashboard.html', scripts=scripts, submission_count=submission_count)
 
 @app.route('/admin/scripts/new', methods=['GET', 'POST'])
 @login_required
@@ -910,6 +936,255 @@ with app.app_context():
             print(f"Database path: {db_path}")
             print(f"Directory exists: {os.path.exists(os.path.dirname(db_path))}")
             print(f"Directory is writable: {os.access(os.path.dirname(db_path), os.W_OK)}")
+
+# Add these helper functions
+def get_auth_config():
+    config = AuthConfig.query.first()
+    if not config:
+        config = AuthConfig()
+        db.session.add(config)
+        db.session.commit()
+    return config
+
+def authenticate_tacacs(username, password):
+    config = get_auth_config()
+    if not config.tacacs_server:
+        return False
+    
+    try:
+        client = TACACSClient(
+            host=config.tacacs_server,
+            port=config.tacacs_port,
+            secret=config.tacacs_secret.encode(),
+            timeout=config.tacacs_timeout
+        )
+        
+        # Authenticate user
+        authen = client.authenticate(username, password, config.tacacs_service)
+        return authen.valid
+    except Exception as e:
+        app.logger.error(f"TACACS+ authentication error: {str(e)}")
+        return False
+
+# Add user management routes
+@app.route('/admin/users')
+@login_required
+def admin_users():
+    if not current_user.is_admin:
+        flash('You do not have permission to access this page.')
+        return redirect(url_for('index'))
+    
+    users = User.query.all()
+    return render_template('admin/users.html', users=users)
+
+@app.route('/admin/users/add', methods=['GET', 'POST'])
+@login_required
+def add_user():
+    if not current_user.is_admin:
+        flash('You do not have permission to access this page.')
+        return redirect(url_for('index'))
+    
+    form = UserForm()
+    if form.validate_on_submit():
+        user = User(
+            username=form.username.data,
+            email=form.email.data,
+            full_name=form.full_name.data,
+            is_admin=form.is_admin.data,
+            is_active=form.is_active.data,
+            auth_type=form.auth_type.data
+        )
+        
+        if form.password.data and form.auth_type.data == 'local':
+            user.set_password(form.password.data)
+        
+        db.session.add(user)
+        db.session.commit()
+        flash(f'User {user.username} has been created.')
+        return redirect(url_for('admin_users'))
+    
+    return render_template('admin/edit_user.html', form=form, user=None)
+
+@app.route('/admin/users/edit/<int:user_id>', methods=['GET', 'POST'])
+@login_required
+def edit_user(user_id):
+    if not current_user.is_admin:
+        flash('You do not have permission to access this page.')
+        return redirect(url_for('index'))
+    
+    user = User.query.get_or_404(user_id)
+    form = UserForm(obj=user)
+    
+    if form.validate_on_submit():
+        user.username = form.username.data
+        user.email = form.email.data
+        user.full_name = form.full_name.data
+        user.is_admin = form.is_admin.data
+        user.is_active = form.is_active.data
+        user.auth_type = form.auth_type.data
+        
+        if form.password.data and form.auth_type.data == 'local':
+            user.set_password(form.password.data)
+        
+        db.session.commit()
+        flash(f'User {user.username} has been updated.')
+        return redirect(url_for('admin_users'))
+    
+    return render_template('admin/edit_user.html', form=form, user=user)
+
+@app.route('/admin/users/delete/<int:user_id>', methods=['POST'])
+@login_required
+def delete_user(user_id):
+    if not current_user.is_admin:
+        flash('You do not have permission to access this page.')
+        return redirect(url_for('index'))
+    
+    user = User.query.get_or_404(user_id)
+    
+    if user.id == current_user.id:
+        flash('You cannot delete your own account.')
+        return redirect(url_for('admin_users'))
+    
+    db.session.delete(user)
+    db.session.commit()
+    flash(f'User {user.username} has been deleted.')
+    return redirect(url_for('admin_users'))
+
+@app.route('/admin/auth-config', methods=['GET', 'POST'])
+@login_required
+def auth_config():
+    if not current_user.is_admin:
+        flash('You do not have permission to access this page.')
+        return redirect(url_for('index'))
+    
+    config = get_auth_config()
+    form = AuthConfigForm(obj=config)
+    
+    if form.validate_on_submit():
+        config.auth_type = form.auth_type.data
+        config.tacacs_server = form.tacacs_server.data
+        config.tacacs_port = int(form.tacacs_port.data)
+        
+        if form.tacacs_secret.data:  # Only update if provided
+            config.tacacs_secret = form.tacacs_secret.data
+            
+        config.tacacs_timeout = int(form.tacacs_timeout.data)
+        config.tacacs_service = form.tacacs_service.data
+        config.updated_at = datetime.utcnow()
+        
+        db.session.commit()
+        flash('Authentication configuration has been updated.')
+        return redirect(url_for('auth_config'))
+    
+    return render_template('admin/auth_config.html', form=form, config=config)
+
+# Add the TACACS+ test endpoint
+@app.route('/admin/test-tacacs', methods=['POST'])
+@login_required
+def test_tacacs():
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'message': 'Permission denied'}), 403
+    
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    
+    if not username or not password:
+        return jsonify({'success': False, 'message': 'Username and password are required'}), 400
+    
+    config = get_auth_config()
+    
+    if not config.tacacs_server:
+        return jsonify({'success': False, 'message': 'TACACS+ server not configured'}), 400
+    
+    try:
+        result = authenticate_tacacs(username, password)
+        if result:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'message': 'Authentication failed'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/admin/dashboard')
+@login_required
+def admin_dashboard():
+    if not current_user.is_admin:
+        flash('You do not have permission to access this page.')
+        return redirect(url_for('index'))
+    
+    # Add user stats to the dashboard
+    user_count = User.query.count()
+    active_users = User.query.filter_by(is_active=True).count()
+    admin_users = User.query.filter_by(is_admin=True).count()
+    tacacs_users = User.query.filter_by(auth_type='tacacs').count()
+    
+    # Get existing stats
+    script_count = Script.query.count()
+    submission_count = FormSubmission.query.count()
+    
+    return render_template('admin/dashboard.html', 
+                          script_count=script_count,
+                          submission_count=submission_count,
+                          user_count=user_count,
+                          active_users=active_users,
+                          admin_users=admin_users,
+                          tacacs_users=tacacs_users)
+
+# Add these forms
+class LoginForm(FlaskForm):
+    class Meta:
+        csrf = False  # Disable CSRF for this form
+    
+    username = StringField('Username', validators=[DataRequired()])
+    password = PasswordField('Password', validators=[DataRequired()])
+    remember_me = BooleanField('Remember Me')
+
+class UserForm(FlaskForm):
+    class Meta:
+        csrf = False  # Disable CSRF for this form
+    
+    username = StringField('Username', validators=[DataRequired(), Length(min=3, max=64)])
+    email = StringField('Email', validators=[DataRequired(), Email()])
+    password = PasswordField('Password', validators=[
+        Optional(),
+        Length(min=8, message='Password must be at least 8 characters long')
+    ])
+    confirm_password = PasswordField('Confirm Password', validators=[
+        EqualTo('password', message='Passwords must match')
+    ])
+    full_name = StringField('Full Name', validators=[Optional(), Length(max=100)])
+    is_admin = BooleanField('Administrator')
+    is_active = BooleanField('Active', default=True)
+    auth_type = SelectField('Authentication Type', choices=[
+        ('local', 'Local Authentication'),
+        ('tacacs', 'TACACS+ Authentication')
+    ])
+
+class AuthConfigForm(FlaskForm):
+    class Meta:
+        csrf = False  # Disable CSRF for this form
+    
+    auth_type = SelectField('Default Authentication Method', choices=[
+        ('local', 'Local Authentication'),
+        ('tacacs', 'TACACS+ Authentication')
+    ])
+    tacacs_server = StringField('TACACS+ Server', validators=[Optional()])
+    tacacs_port = StringField('TACACS+ Port', default='49', validators=[Optional()])
+    tacacs_secret = PasswordField('TACACS+ Secret', validators=[Optional()])
+    tacacs_timeout = StringField('TACACS+ Timeout (seconds)', default='10', validators=[Optional()])
+    tacacs_service = StringField('TACACS+ Service Name', default='scripter', validators=[Optional()])
+
+# Add the missing admin_scripts route
+@app.route('/admin/scripts')
+@login_required
+def admin_scripts():
+    if not current_user.is_admin:
+        flash('You do not have permission to access this page.')
+        return redirect(url_for('index'))
+    
+    scripts = Script.query.all()
+    return render_template('admin/manage_scripts.html', scripts=scripts)
 
 if __name__ == '__main__':
     app.run(debug=True)

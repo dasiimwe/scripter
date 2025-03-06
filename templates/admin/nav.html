@@ -1,0 +1,28 @@
+<div class="tabs">
+    <ul>
+        <li class="{{ 'is-active' if active_tab == 'dashboard' else '' }}">
+            <a href="{{ url_for('admin_dashboard') }}">
+                <span class="icon is-small"><i class="fas fa-tachometer-alt"></i></span>
+                <span>Dashboard</span>
+            </a>
+        </li>
+        <li class="{{ 'is-active' if active_tab == 'scripts' else '' }}">
+            <a href="{{ url_for('admin_scripts') }}">
+                <span class="icon is-small"><i class="fas fa-file-code"></i></span>
+                <span>Scripts</span>
+            </a>
+        </li>
+        <li class="{{ 'is-active' if active_tab == 'users' else '' }}">
+            <a href="{{ url_for('admin_users') }}">
+                <span class="icon is-small"><i class="fas fa-users"></i></span>
+                <span>Users</span>
+            </a>
+        </li>
+        <li class="{{ 'is-active' if active_tab == 'settings' else '' }}">
+            <a href="{{ url_for('auth_config') }}">
+                <span class="icon is-small"><i class="fas fa-cogs"></i></span>
+                <span>Settings</span>
+            </a>
+        </li>
+    </ul>
+</div> 

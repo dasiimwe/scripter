@@ -1,99 +1,104 @@
 {% extends "base.html" %}
 
-{% block title %}Scripter - Admin Dashboard{% endblock %}
+{% block title %}Admin Dashboard{% endblock %}
 
 {% block content %}
-
-<div class="box">
-    <div class="level">
-        <div class="level-left">
-            <div class="level-item">
-                <h2 class="subtitle">Administration</h2>
+<div class="container">
+    <h1 class="title">Admin Dashboard</h1>
+    
+    <div class="columns">
+        <div class="column">
+            <div class="admin-stat-card">
+                <div class="admin-stat-value">{{ script_count }}</div>
+                <div class="admin-stat-label">Scripts</div>
             </div>
         </div>
-        <div class="level-right">
-            <div class="level-item">
-                <a href="{{ url_for('migrate_database') }}" class="button is-info">
-                    <span class="icon">
-                        <i class="fas fa-database"></i>
-                    </span>
-                    <span>Database Migration</span>
-                </a>
+        <div class="column">
+            <div class="admin-stat-card">
+                <div class="admin-stat-value">{{ submission_count }}</div>
+                <div class="admin-stat-label">Submissions</div>
+            </div>
+        </div>
+        <div class="column">
+            <div class="admin-stat-card">
+                <div class="admin-stat-value">{{ user_count }}</div>
+                <div class="admin-stat-label">Users</div>
+            </div>
+        </div>
+        <div class="column">
+            <div class="admin-stat-card">
+                <div class="admin-stat-value">{{ active_users }}</div>
+                <div class="admin-stat-label">Active Users</div>
             </div>
         </div>
     </div>
     
-    <div class="level">
-        <div class="level-left">
-            <div class="level-item">
-                <h2 class="subtitle">Manage Scripts</h2>
-            </div>
-        </div>
-        <div class="level-right">
-            <div class="level-item">
-                <a href="{{ url_for('create_script') }}" class="button is-primary">
-                    <span class="icon">
-                        <i class="fas fa-plus"></i>
-                    </span>
-                    <span>New Script</span>
-                </a>
-            </div>
-        </div>
-    </div>
-    
-    {% if scripts %}
-        <table class="table is-fullwidth">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Category</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for script in scripts %}
-                <tr>
-                    <td>{{ script.name }}</td>
-                    <td>{{ script.category }}</td>
-                    <td>
-                        <span class="tag 
-                            {% if script.status == 'active' %}is-success
-                            {% elif script.status == 'draft' %}is-warning
-                            {% else %}is-light{% endif %}">
-                            {{ script.status }}
+    <div class="columns mt-4">
+        <div class="column">
+            <div class="box">
+                <h2 class="title is-5">User Statistics</h2>
+                <table class="table is-fullwidth">
+                    <tbody>
+                        <tr>
+                            <td>Total Users</td>
+                            <td>{{ user_count }}</td>
+                        </tr>
+                        <tr>
+                            <td>Active Users</td>
+                            <td>{{ active_users }}</td>
+                        </tr>
+                        <tr>
+                            <td>Admin Users</td>
+                            <td>{{ admin_users }}</td>
+                        </tr>
+                        <tr>
+                            <td>TACACS+ Users</td>
+                            <td>{{ tacacs_users }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div class="buttons">
+                    <a href="{{ url_for('admin_users') }}" class="button is-primary">
+                        <span class="icon">
+                            <i class="fas fa-users"></i>
                         </span>
-                    </td>
-                    <td>{{ script.created_at.strftime('%Y-%m-%d') }}</td>
-                    <td>
-                        <div class="buttons are-small">
-                            <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-link">
-                                <span class="icon is-small">
-                                    <i class="fas fa-edit"></i>
-                                </span>
-                                <span>Edit</span>
-                            </a>
-                            <a href="{{ url_for('edit_template', script_id=script.id) }}" class="button is-info">
-                                <span class="icon is-small">
-                                    <i class="fas fa-code"></i>
-                                </span>
-                                <span>Template</span>
-                            </a>
-                            <a href="{{ url_for('manage_fields', script_id=script.id) }}" class="button is-primary">
-                                <span class="icon is-small">
-                                    <i class="fas fa-list-alt"></i>
-                                </span>
-                                <span>Fields</span>
-                            </a>
-                        </div>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p>No scripts have been created yet.</p>
-    {% endif %}
+                        <span>Manage Users</span>
+                    </a>
+                    <a href="{{ url_for('auth_config') }}" class="button is-info">
+                        <span class="icon">
+                            <i class="fas fa-cogs"></i>
+                        </span>
+                        <span>Auth Settings</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="column">
+            <div class="box">
+                <h2 class="title is-5">Script Statistics</h2>
+                <table class="table is-fullwidth">
+                    <tbody>
+                        <tr>
+                            <td>Total Scripts</td>
+                            <td>{{ script_count }}</td>
+                        </tr>
+                        <tr>
+                            <td>Total Submissions</td>
+                            <td>{{ submission_count }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div class="buttons">
+                    <a href="{{ url_for('admin_scripts') }}" class="button is-primary">
+                        <span class="icon">
+                            <i class="fas fa-file-code"></i>
+                        </span>
+                        <span>Manage Scripts</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %} 

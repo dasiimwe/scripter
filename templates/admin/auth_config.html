@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block title %}Authentication Configuration{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="title">Authentication Configuration</h1>
+    <p class="subtitle">Configure system authentication methods</p>
+    
+    <div class="box">
+        <form method="POST">
+            {{ form.csrf_token }}
+            
+            <div class="field">
+                <label class="label">Default Authentication Method</label>
+                <div class="control">
+                    <div class="select is-fullwidth">
+                        {{ form.auth_type() }}
+                    </div>
+                </div>
+                <p class="help">This setting determines the default authentication method for new users.</p>
+            </div>
+            
+            <div class="notification is-info is-light">
+                <p><strong>TACACS+ Configuration</strong></p>
+                <p>Configure these settings to enable TACACS+ authentication.</p>
+            </div>
+            
+            <div class="field">
+                <label class="label">TACACS+ Server</label>
+                <div class="control">
+                    {{ form.tacacs_server(class="input") }}
+                </div>
+                <p class="help">IP address or hostname of the TACACS+ server</p>
+            </div>
+            
+            <div class="field">
+                <label class="label">TACACS+ Port</label>
+                <div class="control">
+                    {{ form.tacacs_port(class="input") }}
+                </div>
+                <p class="help">Default TACACS+ port is 49</p>
+            </div>
+            
+            <div class="field">
+                <label class="label">TACACS+ Secret</label>
+                <div class="control">
+                    {{ form.tacacs_secret(class="input") }}
+                </div>
+                <p class="help">
+                    {% if config and config.tacacs_secret %}
+                    Leave blank to keep current secret.
+                    {% else %}
+                    Shared secret for TACACS+ authentication.
+                    {% endif %}
+                </p>
+            </div>
+            
+            <div class="field">
+                <label class="label">TACACS+ Timeout (seconds)</label>
+                <div class="control">
+                    {{ form.tacacs_timeout(class="input") }}
+                </div>
+                <p class="help">Connection timeout in seconds</p>
+            </div>
+            
+            <div class="field">
+                <label class="label">TACACS+ Service Name</label>
+                <div class="control">
+                    {{ form.tacacs_service(class="input") }}
+                </div>
+                <p class="help">Service name to send to the TACACS+ server</p>
+            </div>
+            
+            <div class="field is-grouped">
+                <div class="control">
+                    <button type="submit" class="button is-primary">
+                        Save Configuration
+                    </button>
+                </div>
+                <div class="control">
+                    <a href="{{ url_for('admin_users') }}" class="button is-light">
+                        Cancel
+                    </a>
+                </div>
+            </div>
+        </form>
+    </div>
+    
+    <div class="box">
+        <h2 class="title is-5">Test TACACS+ Connection</h2>
+        <p>Use this form to test the TACACS+ connection without affecting your current configuration.</p>
+        
+        <form id="test-tacacs-form" class="mt-4">
+            <div class="field">
+                <label class="label">Username</label>
+                <div class="control">
+                    <input type="text" class="input" id="test-username" required>
+                </div>
+            </div>
+            
+            <div class="field">
+                <label class="label">Password</label>
+                <div class="control">
+                    <input type="password" class="input" id="test-password" required>
+                </div>
+            </div>
+            
+            <div class="field is-grouped">
+                <div class="control">
+                    <button type="submit" class="button is-info" id="test-button">
+                        Test Connection
+                    </button>
+                </div>
+            </div>
+            
+            <div id="test-result" class="mt-4" style="display: none;"></div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const testForm = document.getElementById('test-tacacs-form');
+    const testButton = document.getElementById('test-button');
+    const testResult = document.getElementById('test-result');
+    
+    testForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const username = document.getElementById('test-username').value;
+        const password = document.getElementById('test-password').value;
+        
+        testButton.classList.add('is-loading');
+        testResult.style.display = 'none';
+        
+        // Send test request to server
+        fetch('/admin/test-tacacs', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                username: username,
+                password: password
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            testButton.classList.remove('is-loading');
+            testResult.style.display = 'block';
+            
+            if (data.success) {
+                testResult.className = 'notification is-success';
+                testResult.innerHTML = '<p><strong>Success!</strong> TACACS+ authentication successful.</p>';
+            } else {
+                testResult.className = 'notification is-danger';
+                testResult.innerHTML = `<p><strong>Failed!</strong> ${data.message}</p>`;
+            }
+        })
+        .catch(error => {
+            testButton.classList.remove('is-loading');
+            testResult.style.display = 'block';
+            testResult.className = 'notification is-danger';
+            testResult.innerHTML = `<p><strong>Error!</strong> ${error.message}</p>`;
+        });
+    });
+});
+</script>
+{% endblock %} 

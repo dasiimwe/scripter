@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}User Management{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="title">User Management</h1>
+    
+    <div class="level">
+        <div class="level-left">
+            <div class="level-item">
+                <p class="subtitle">Manage system users</p>
+            </div>
+        </div>
+        <div class="level-right">
+            <div class="level-item">
+                <a href="{{ url_for('add_user') }}" class="button is-primary">
+                    <span class="icon">
+                        <i class="fas fa-user-plus"></i>
+                    </span>
+                    <span>Add User</span>
+                </a>
+            </div>
+            <div class="level-item">
+                <a href="{{ url_for('auth_config') }}" class="button is-info">
+                    <span class="icon">
+                        <i class="fas fa-cogs"></i>
+                    </span>
+                    <span>Auth Settings</span>
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="table-container">
+        <table class="table is-fullwidth is-striped">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Full Name</th>
+                    <th>Auth Type</th>
+                    <th>Status</th>
+                    <th>Admin</th>
+                    <th>Last Login</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>{{ user.username }}</td>
+                    <td>{{ user.email }}</td>
+                    <td>{{ user.full_name }}</td>
+                    <td>
+                        {% if user.auth_type == 'local' %}
+                        <span class="tag is-info">Local</span>
+                        {% else %}
+                        <span class="tag is-success">TACACS+</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.is_active %}
+                        <span class="tag is-success">Active</span>
+                        {% else %}
+                        <span class="tag is-danger">Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.is_admin %}
+                        <span class="tag is-warning">Admin</span>
+                        {% else %}
+                        <span class="tag is-light">User</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if user.last_login %}
+                        {{ user.last_login.strftime('%Y-%m-%d %H:%M') }}
+                        {% else %}
+                        Never
+                        {% endif %}
+                    </td>
+                    <td>
+                        <div class="buttons are-small">
+                            <a href="{{ url_for('edit_user', user_id=user.id) }}" class="button is-info">
+                                <span class="icon is-small">
+                                    <i class="fas fa-edit"></i>
+                                </span>
+                            </a>
+                            {% if user.id != current_user.id %}
+                            <button class="button is-danger delete-user" data-user-id="{{ user.id }}" data-username="{{ user.username }}">
+                                <span class="icon is-small">
+                                    <i class="fas fa-trash-alt"></i>
+                                </span>
+                            </button>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal" id="delete-modal">
+    <div class="modal-background"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <p class="modal-card-title">Confirm Deletion</p>
+            <button class="delete" aria-label="close"></button>
+        </header>
+        <section class="modal-card-body">
+            <p>Are you sure you want to delete user <strong id="delete-username"></strong>?</p>
+            <p class="has-text-danger">This action cannot be undone.</p>
+        </section>
+        <footer class="modal-card-foot">
+            <form id="delete-form" method="POST">
+                <button type="submit" class="button is-danger">Delete User</button>
+            </form>
+            <button class="button cancel-delete">Cancel</button>
+        </footer>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Delete user modal functionality
+    const deleteModal = document.getElementById('delete-modal');
+    const deleteUsername = document.getElementById('delete-username');
+    const deleteForm = document.getElementById('delete-form');
+    const deleteButtons = document.querySelectorAll('.delete-user');
+    const closeModalButtons = document.querySelectorAll('#delete-modal .delete, #delete-modal .cancel-delete');
+    
+    deleteButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const userId = this.getAttribute('data-user-id');
+            const username = this.getAttribute('data-username');
+            
+            deleteUsername.textContent = username;
+            deleteForm.action = `/admin/users/delete/${userId}`;
+            deleteModal.classList.add('is-active');
+        });
+    });
+    
+    closeModalButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            deleteModal.classList.remove('is-active');
+        });
+    });
+});
+</script>
+{% endblock %} 
