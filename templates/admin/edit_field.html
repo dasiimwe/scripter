@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+
+{% block title %}{{ 'Edit' if field else 'Add' }} Field - {{ script.name }}{% endblock %}
+
+{% block head_extra %}
+<style>
+    .field-container {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    .field-type-help {
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+        color: #666;
+    }
+    
+    .validation-help {
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+        color: #666;
+    }
+    
+    .snippet-dropdown {
+        margin-top: 0.5rem;
+    }
+    
+    .snippet-button {
+        margin-right: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container field-container">
+    <h1 class="title">{{ 'Edit' if field else 'Add' }} Field</h1>
+    <h2 class="subtitle">Script: {{ script.name }}</h2>
+    
+    <form method="POST">
+        <div class="field">
+            <label class="label">Field Name</label>
+            <div class="control">
+                <input class="input" type="text" name="name" value="{{ field.name if field else '' }}" required>
+            </div>
+            <p class="help">Use a unique name without spaces (e.g., first_name, email_address)</p>
+        </div>
+        
+        <div class="field">
+            <label class="label">Label</label>
+            <div class="control">
+                <input class="input" type="text" name="label" value="{{ field.label if field else '' }}" required>
+            </div>
+            <p class="help">The label displayed to users</p>
+        </div>
+        
+        <div class="field">
+            <label class="label">Field Type</label>
+            <div class="control">
+                <div class="select is-fullwidth">
+                    <select name="field_type" id="field-type">
+                        <option value="text" {% if field and field.field_type == 'text' %}selected{% endif %}>Text</option>
+                        <option value="textarea" {% if field and field.field_type == 'textarea' %}selected{% endif %}>Text Area</option>
+                        <option value="number" {% if field and field.field_type == 'number' %}selected{% endif %}>Number</option>
+                        <option value="email" {% if field and field.field_type == 'email' %}selected{% endif %}>Email</option>
+                        <option value="select" {% if field and field.field_type == 'select' %}selected{% endif %}>Dropdown</option>
+                        <option value="radio" {% if field and field.field_type == 'radio' %}selected{% endif %}>Radio Buttons</option>
+                        <option value="checkbox" {% if field and field.field_type == 'checkbox' %}selected{% endif %}>Checkbox</option>
+                        <option value="date" {% if field and field.field_type == 'date' %}selected{% endif %}>Date</option>
+                    </select>
+                </div>
+            </div>
+            <div class="field-type-help" id="field-type-help">
+                <p>Text: Single line text input</p>
+            </div>
+        </div>
+        
+        <div class="field">
+            <label class="label">Required</label>
+            <div class="control">
+                <label class="checkbox">
+                    <input type="checkbox" name="required" {% if field and field.required %}checked{% endif %}>
+                    This field is required
+                </label>
+            </div>
+        </div>
+        
+        <div class="field">
+            <label class="label">Default Value</label>
+            <div class="control">
+                <input class="input" type="text" name="default_value" value="{{ field.default_value if field else '' }}">
+            </div>
+            <p class="help">The initial value for this field (optional)</p>
+        </div>
+        
+        <div class="field">
+            <label class="label">Help Text</label>
+            <div class="control">
+                <input class="input" type="text" name="help_text" value="{{ field.help_text if field else '' }}">
+            </div>
+            <p class="help">Additional instructions shown to the user (optional)</p>
+        </div>
+        
+        <div class="field" id="validation-rules-container">
+            <label class="label">Options / Validation Rules</label>
+            <div class="control">
+                <textarea class="textarea" name="validation_rules" id="validation-rules">{{ field.validation_rules if field else '' }}</textarea>
+            </div>
+            <p class="validation-help">
+                For dropdown and radio buttons: Enter options separated by commas<br>
+                For other fields: Enter validation rules (optional)
+            </p>
+            
+            <div id="options-snippets" class="is-hidden">
+                <p class="has-text-weight-medium mt-2">Insert common options:</p>
+                <div class="buttons">
+                    <button type="button" class="button is-small is-info snippet-button" data-snippet="countries">
+                        Countries
+                    </button>
+                    <button type="button" class="button is-small is-info snippet-button" data-snippet="us_states">
+                        US States
+                    </button>
+                    <button type="button" class="button is-small is-info snippet-button" data-snippet="state_codes">
+                        State Codes
+                    </button>
+                    <button type="button" class="button is-small is-info snippet-button" data-snippet="yes_no">
+                        Yes/No
+                    </button>
+                    <button type="button" class="button is-small is-info snippet-button" data-snippet="true_false">
+                        True/False
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="field">
+            <label class="label">Conditional Logic</label>
+            <div class="control">
+                <input class="input" type="text" name="conditional_logic" value="{{ field.conditional_logic if field else '' }}">
+            </div>
+            <p class="help">Show this field only when another field has a specific value (e.g., show_if=field_name)</p>
+        </div>
+        
+        <div class="field is-grouped">
+            <div class="control">
+                <button type="submit" class="button is-primary">Save Field</button>
+            </div>
+            <div class="control">
+                <a href="{{ url_for('manage_fields', script_id=script.id) }}" class="button is-light">Cancel</a>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Common options data
+const optionsData = {
+    countries: [
+        "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", 
+        "Armenia", "Australia", "Austria", "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", 
+        "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", 
+        "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", 
+        "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo", 
+        "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czech Republic", "Denmark", "Djibouti", "Dominica", 
+        "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", 
+        "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia", "Georgia", "Germany", 
+        "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Honduras", 
+        "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", 
+        "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kosovo", "Kuwait", "Kyrgyzstan", "Laos", 
+        "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", 
+        "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", 
+        "Mauritius", "Mexico", "Micronesia", "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", 
+        "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", 
+        "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", 
+        "Palestine", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", 
+        "Qatar", "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", 
+        "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia", 
+        "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", 
+        "Solomon Islands", "Somalia", "South Africa", "South Korea", "South Sudan", "Spain", "Sri Lanka", 
+        "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Taiwan", "Tajikistan", "Tanzania", 
+        "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", 
+        "Turkmenistan", "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", 
+        "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City", "Venezuela", "Vietnam", 
+        "Yemen", "Zambia", "Zimbabwe"
+    ],
+    us_states: [
+        "Alabama", "Alaska", "Arizona", "Arkansas", "California", "Colorado", "Connecticut", 
+        "Delaware", "Florida", "Georgia", "Hawaii", "Idaho", "Illinois", "Indiana", "Iowa", 
+        "Kansas", "Kentucky", "Louisiana", "Maine", "Maryland", "Massachusetts", "Michigan", 
+        "Minnesota", "Mississippi", "Missouri", "Montana", "Nebraska", "Nevada", "New Hampshire", 
+        "New Jersey", "New Mexico", "New York", "North Carolina", "North Dakota", "Ohio", "Oklahoma", 
+        "Oregon", "Pennsylvania", "Rhode Island", "South Carolina", "South Dakota", "Tennessee", 
+        "Texas", "Utah", "Vermont", "Virginia", "Washington", "West Virginia", "Wisconsin", "Wyoming"
+    ],
+    state_codes: [
+        "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", 
+        "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", 
+        "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", 
+        "VA", "WA", "WV", "WI", "WY"
+    ],
+    yes_no: ["Yes", "No"],
+    true_false: ["True", "False"]
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    const fieldTypeSelect = document.getElementById('field-type');
+    const fieldTypeHelp = document.getElementById('field-type-help');
+    const validationRulesContainer = document.getElementById('validation-rules-container');
+    const optionsSnippets = document.getElementById('options-snippets');
+    const validationRules = document.getElementById('validation-rules');
+    
+    // Field type descriptions
+    const fieldTypeDescriptions = {
+        'text': 'Text: Single line text input',
+        'textarea': 'Text Area: Multi-line text input for longer content',
+        'number': 'Number: Numeric input only',
+        'email': 'Email: Input with email validation',
+        'select': 'Dropdown: Select from a list of options',
+        'radio': 'Radio Buttons: Choose one option from a list',
+        'checkbox': 'Checkbox: Toggle on/off option',
+        'date': 'Date: Date picker input'
+    };
+    
+    // Update help text when field type changes
+    fieldTypeSelect.addEventListener('change', function() {
+        const selectedType = this.value;
+        fieldTypeHelp.innerHTML = `<p>${fieldTypeDescriptions[selectedType]}</p>`;
+        
+        // Show options snippets for select and radio types
+        if (selectedType === 'select' || selectedType === 'radio') {
+            optionsSnippets.classList.remove('is-hidden');
+        } else {
+            optionsSnippets.classList.add('is-hidden');
+        }
+    });
+    
+    // Trigger change event to set initial help text
+    fieldTypeSelect.dispatchEvent(new Event('change'));
+    
+    // Handle snippet button clicks
+    const snippetButtons = document.querySelectorAll('.snippet-button');
+    snippetButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const snippetType = this.getAttribute('data-snippet');
+            const options = optionsData[snippetType];
+            
+            if (options) {
+                validationRules.value = options.join(', ');
+            }
+        });
+    });
+});
+</script>
+{% endblock %} 

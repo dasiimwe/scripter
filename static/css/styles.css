@@ -7,4 +7,69 @@
     position: relative;
     right: 0.5rem;
     top: 0.5rem;
+}
+
+/* Form field styling */
+.input,
+.textarea,
+.select select {
+    /* Set width to approximately 25 characters */
+    width: 25ch;
+    max-width: 100%;
+}
+
+/* For full-width fields in their containers */
+.is-fullwidth .input,
+.is-fullwidth .textarea,
+.is-fullwidth .select,
+.is-fullwidth .select select,
+.field.is-fullwidth .input,
+.field.is-fullwidth .textarea,
+.field.is-fullwidth .select,
+.field.is-fullwidth .select select {
+    width: 100%;
+}
+
+/* Preserve the field layout in the script_form.html */
+.field-col .input,
+.field-col .textarea,
+.field-col .select,
+.field-col .select select {
+    width: 100%;
+}
+
+/* Adjust textarea height */
+.textarea {
+    min-height: 6em;
+}
+
+/* Make sure select elements match input height */
+.select {
+    height: auto;
+}
+
+/* Ensure consistent spacing between form elements */
+.field:not(:last-child) {
+    margin-bottom: 0.75rem;
+}
+
+/* Improve spacing for checkbox and radio options */
+.checkbox,
+.radio {
+    display: inline-block;
+    margin-right: 1rem;
+}
+
+/* Ensure help text is clearly associated with fields */
+.help,
+.field-help {
+    font-size: 0.85rem;
+    margin-top: 0.25rem;
+    color: #666;
+}
+
+/* Style required field indicators */
+.required-field label::after {
+    content: " *";
+    color: #f14668;
 } 

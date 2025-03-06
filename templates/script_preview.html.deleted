@@ -1,0 +1,392 @@
+{% extends "base.html" %}
+
+{% block title %}{{ script.name }} - Preview{% endblock %}
+
+{% block head_extra %}
+<style>
+    .page-container {
+        display: flex;
+        flex-direction: column;
+        min-height: calc(100vh - 150px); /* Account for header/footer */
+    }
+    
+    .form-output-container {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+    }
+    
+    @media screen and (min-width: 769px) {
+        .form-output-container {
+            flex-direction: row;
+        }
+    }
+    
+    .form-container {
+        flex: 0 1 auto;
+        padding: 1rem;
+        max-width: 100%;
+    }
+    
+    .output-container {
+        flex: 1 0 auto;
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        border-left: 1px solid #dbdbdb;
+    }
+    
+    @media screen and (max-width: 768px) {
+        .output-container {
+            border-left: none;
+            border-top: 1px solid #dbdbdb;
+            margin-top: 1rem;
+            padding-top: 1rem;
+        }
+    }
+    
+    .field-row {
+        display: flex;
+        flex-wrap: wrap;
+        margin: -0.5rem;
+    }
+    
+    .field-col {
+        flex: 1 1 300px;
+        padding: 0.5rem;
+        min-width: 0;
+    }
+    
+    .field-col.is-narrow {
+        flex: 0 1 200px;
+    }
+    
+    .field-col.is-wide {
+        flex: 2 1 450px;
+    }
+    
+    .output-area {
+        flex: 1;
+        overflow-y: auto;
+        padding: 1rem;
+        border: 1px solid #dbdbdb;
+        border-radius: 4px;
+        background-color: #f5f5f5;
+        min-height: 200px;
+    }
+    
+    .output-html {
+        background-color: white;
+        padding: 1rem;
+        border: 1px solid #dbdbdb;
+        border-radius: 4px;
+    }
+    
+    .form-actions {
+        margin-top: 1.5rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .field-help {
+        font-size: 0.85rem;
+        margin-top: 0.25rem;
+        color: #666;
+    }
+    
+    .required-field label::after {
+        content: " *";
+        color: #f14668;
+    }
+    
+    .field-group {
+        margin-bottom: 1.5rem;
+        padding-bottom: 1.5rem;
+        border-bottom: 1px dashed #dbdbdb;
+    }
+    
+    .field-group:last-child {
+        border-bottom: none;
+    }
+    
+    .field-group-title {
+        margin-bottom: 1rem;
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #363636;
+    }
+    
+    .preview-info {
+        background-color: #f5f7fa;
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 1.5rem;
+        border-left: 4px solid #3273dc;
+    }
+    
+    .preview-actions {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 1.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container page-container">
+    <div class="mb-4">
+        <h1 class="title">{{ script.name }} <span class="tag is-info">Preview</span></h1>
+        {% if script.description %}
+        <p class="subtitle">{{ script.description }}</p>
+        {% endif %}
+    </div>
+    
+    <div class="preview-info">
+        <p><strong>Note:</strong> This is a preview of the script form. You can test the form and see how it will look to users.</p>
+    </div>
+    
+    <div class="preview-actions">
+        <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-light">
+            <span class="icon">
+                <i class="fas fa-arrow-left"></i>
+            </span>
+            <span>Back to Editor</span>
+        </a>
+        
+        <a href="{{ url_for('view_script', script_id=script.id) }}" class="button is-primary">
+            <span class="icon">
+                <i class="fas fa-eye"></i>
+            </span>
+            <span>View Live Form</span>
+        </a>
+    </div>
+    
+    <div class="form-output-container">
+        <div class="form-container">
+            <form id="script-form" method="POST" action="{{ url_for('script_preview', script_id=script.id) }}">
+                {% set current_group = '' %}
+                {% set field_groups = {} %}
+                
+                {# Group fields by their first part of the name (before underscore) #}
+                {% for field in form_fields %}
+                    {% set group_name = field.name.split('_')[0] if '_' in field.name else 'main' %}
+                    {% if group_name not in field_groups %}
+                        {% set field_groups = field_groups.update({group_name: []}) or field_groups %}
+                    {% endif %}
+                    {% set _ = field_groups[group_name].append(field) %}
+                {% endfor %}
+                
+                {# Render fields by group #}
+                {% for group_name, fields in field_groups.items() %}
+                    <div class="field-group">
+                        {% if group_name != 'main' %}
+                            <div class="field-group-title">{{ group_name|replace('_', ' ')|title }}</div>
+                        {% endif %}
+                        
+                        <div class="field-row">
+                            {% for field in fields %}
+                                {% set field_size = 'normal' %}
+                                {% if field.field_type == 'checkbox' or field.field_type == 'radio' or field.name|length < 8 %}
+                                    {% set field_size = 'narrow' %}
+                                {% elif field.field_type == 'textarea' or field.name|length > 15 %}
+                                    {% set field_size = 'wide' %}
+                                {% endif %}
+                                
+                                <div class="field-col {% if field_size == 'narrow' %}is-narrow{% elif field_size == 'wide' %}is-wide{% endif %}">
+                                    <div class="field {% if field.required %}required-field{% endif %}">
+                                        {% if field.field_type == 'checkbox' %}
+                                            <div class="control">
+                                                <label class="checkbox">
+                                                    <input type="checkbox" name="{{ field.name }}" 
+                                                        {% if form_data and form_data.get(field.name) %}checked{% elif field.default_value == 'true' %}checked{% endif %}>
+                                                    {{ field.label }}
+                                                </label>
+                                            </div>
+                                        {% else %}
+                                            <label class="label">{{ field.label }}</label>
+                                            <div class="control">
+                                                {% if field.field_type == 'textarea' %}
+                                                    <textarea class="textarea" name="{{ field.name }}" 
+                                                        {% if field.required %}required{% endif %} 
+                                                        placeholder="{{ field.help_text or '' }}">{{ form_data.get(field.name, field.default_value or '') }}</textarea>
+                                                {% elif field.field_type == 'select' %}
+                                                    <div class="select is-fullwidth">
+                                                        <select name="{{ field.name }}" {% if field.required %}required{% endif %}>
+                                                            {% if not field.required %}
+                                                                <option value="">-- Select --</option>
+                                                            {% endif %}
+                                                            {% for option in field.validation_rules.split(',') if field.validation_rules %}
+                                                                <option value="{{ option.strip() }}" 
+                                                                    {% if form_data and form_data.get(field.name) == option.strip() %}selected
+                                                                    {% elif not form_data and field.default_value == option.strip() %}selected{% endif %}>
+                                                                    {{ option.strip() }}
+                                                                </option>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </div>
+                                                {% elif field.field_type == 'radio' %}
+                                                    {% for option in field.validation_rules.split(',') if field.validation_rules %}
+                                                        <label class="radio">
+                                                            <input type="radio" name="{{ field.name }}" value="{{ option.strip() }}"
+                                                                {% if form_data and form_data.get(field.name) == option.strip() %}checked
+                                                                {% elif not form_data and field.default_value == option.strip() %}checked{% endif %}
+                                                                {% if field.required and loop.first and not form_data and not field.default_value %}checked{% endif %}>
+                                                            {{ option.strip() }}
+                                                        </label>
+                                                    {% endfor %}
+                                                {% else %}
+                                                    <input class="input" type="{{ field.field_type }}" name="{{ field.name }}" 
+                                                        value="{{ form_data.get(field.name, field.default_value or '') }}"
+                                                        {% if field.required %}required{% endif %}
+                                                        placeholder="{{ field.help_text or '' }}">
+                                                {% endif %}
+                                            </div>
+                                        {% endif %}
+                                        
+                                        {% if field.help_text and field.field_type != 'textarea' %}
+                                            <p class="field-help">{{ field.help_text }}</p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                
+                                {# Start a new row after every 3 normal fields, 2 wide fields, or when mixing sizes #}
+                                {% if loop.index % 3 == 0 or 
+                                      (loop.index % 2 == 0 and field_size == 'wide') or
+                                      (loop.index < fields|length and field_size != fields[loop.index].field_type) %}
+                                    </div><div class="field-row">
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endfor %}
+                
+                <div class="form-actions">
+                    <button type="submit" class="button is-primary">
+                        <span class="icon">
+                            <i class="fas fa-magic"></i>
+                        </span>
+                        <span>Generate Script</span>
+                    </button>
+                    
+                    <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-light">
+                        <span class="icon">
+                            <i class="fas fa-arrow-left"></i>
+                        </span>
+                        <span>Back to Editor</span>
+                    </a>
+                </div>
+            </form>
+        </div>
+        
+        {% if output %}
+        <div class="output-container">
+            <h3 class="title is-4">Generated Output</h3>
+            
+            <div class="output-area">
+                {% if script.template.output_format == 'html' %}
+                    <div class="output-html">{{ output|safe }}</div>
+                {% else %}
+                    <pre>{{ output }}</pre>
+                {% endif %}
+            </div>
+            
+            <div class="buttons is-right mt-3">
+                <button id="copy-output" class="button is-success">
+                    <span class="icon">
+                        <i class="fas fa-copy"></i>
+                    </span>
+                    <span>Copy to Clipboard</span>
+                </button>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Copy to clipboard functionality
+    const copyButton = document.getElementById('copy-output');
+    if (copyButton) {
+        copyButton.addEventListener('click', function() {
+            const outputArea = document.querySelector('.output-area');
+            const outputText = outputArea.innerText || outputArea.textContent;
+            
+            // Create a temporary textarea element to copy from
+            const textarea = document.createElement('textarea');
+            textarea.value = outputText;
+            textarea.setAttribute('readonly', '');
+            textarea.style.position = 'absolute';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            
+            // Select and copy the text
+            textarea.select();
+            document.execCommand('copy');
+            
+            // Remove the temporary element
+            document.body.removeChild(textarea);
+            
+            // Show feedback
+            const originalText = this.innerHTML;
+            this.innerHTML = '<span class="icon"><i class="fas fa-check"></i></span><span>Copied!</span>';
+            
+            setTimeout(() => {
+                this.innerHTML = originalText;
+            }, 2000);
+        });
+    }
+    
+    // Handle conditional fields
+    const formFields = document.querySelectorAll('#script-form input, #script-form select, #script-form textarea');
+    
+    formFields.forEach(field => {
+        field.addEventListener('change', updateConditionalFields);
+    });
+    
+    function updateConditionalFields() {
+        const conditionalFields = document.querySelectorAll('[data-condition]');
+        
+        conditionalFields.forEach(field => {
+            const condition = field.getAttribute('data-condition');
+            const fieldContainer = field.closest('.field-col');
+            
+            if (evaluateCondition(condition)) {
+                fieldContainer.style.display = '';
+            } else {
+                fieldContainer.style.display = 'none';
+            }
+        });
+    }
+    
+    function evaluateCondition(condition) {
+        // Simple condition evaluation - can be expanded for more complex logic
+        if (!condition) return true;
+        
+        const parts = condition.split('=');
+        if (parts.length !== 2) return true;
+        
+        const fieldName = parts[0].trim();
+        const expectedValue = parts[1].trim().replace(/['"]/g, '');
+        
+        const field = document.querySelector(`[name="${fieldName}"]`);
+        if (!field) return true;
+        
+        if (field.type === 'checkbox') {
+            return field.checked === (expectedValue.toLowerCase() === 'true');
+        } else if (field.type === 'radio') {
+            const checkedRadio = document.querySelector(`[name="${fieldName}"]:checked`);
+            return checkedRadio && checkedRadio.value === expectedValue;
+        } else {
+            return field.value === expectedValue;
+        }
+    }
+    
+    // Run once on page load to set initial state
+    updateConditionalFields();
+});
+</script>
+{% endblock %} 

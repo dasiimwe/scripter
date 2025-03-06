@@ -1,0 +1,91 @@
+{% set current_group = '' %}
+{% set field_groups = {} %}
+
+{# Group fields by their first part of the name (before underscore) #}
+{% for field in form_fields %}
+    {% set group_name = field.name.split('_')[0] if '_' in field.name else 'main' %}
+    {% if group_name not in field_groups %}
+        {% set field_groups = field_groups.update({group_name: []}) or field_groups %}
+    {% endif %}
+    {% set _ = field_groups[group_name].append(field) %}
+{% endfor %}
+
+{# Render fields by group #}
+{% for group_name, fields in field_groups.items() %}
+    <div class="field-group">
+        <div class="field-row">
+            {% for field in fields %}
+                {% set field_size = 'normal' %}
+                {% if field.field_type == 'checkbox' or field.field_type == 'radio' or field.name|length < 8 %}
+                    {% set field_size = 'narrow' %}
+                {% elif field.field_type == 'textarea' or field.name|length > 15 %}
+                    {% set field_size = 'wide' %}
+                {% endif %}
+                
+                <div class="field-col {% if field_size == 'narrow' %}is-narrow{% elif field_size == 'wide' %}is-wide{% endif %}">
+                    <div class="field {% if field.required %}required-field{% endif %}">
+                        {% if field.field_type == 'checkbox' %}
+                            <div class="control">
+                                <label class="checkbox">
+                                    <input type="checkbox" name="{{ field.name }}" 
+                                        {% if form_data and form_data.get(field.name) %}checked{% elif field.default_value == 'true' %}checked{% endif %}>
+                                    {{ field.label }}
+                                </label>
+                            </div>
+                        {% else %}
+                            <label class="label">{{ field.label }}</label>
+                            <div class="control">
+                                {% if field.field_type == 'textarea' %}
+                                    <textarea class="textarea" name="{{ field.name }}" 
+                                        {% if field.required %}required{% endif %} 
+                                        placeholder="{{ field.help_text or '' }}">{{ form_data.get(field.name, field.default_value or '') }}</textarea>
+                                {% elif field.field_type == 'select' %}
+                                    <div class="select is-fullwidth">
+                                        <select name="{{ field.name }}" {% if field.required %}required{% endif %}>
+                                            {% if not field.required %}
+                                                <option value="">-- Select --</option>
+                                            {% endif %}
+                                            {% for option in field.validation_rules.split(',') if field.validation_rules %}
+                                                <option value="{{ option.strip() }}" 
+                                                    {% if form_data and form_data.get(field.name) == option.strip() %}selected
+                                                    {% elif not form_data and field.default_value == option.strip() %}selected{% endif %}>
+                                                    {{ option.strip() }}
+                                                </option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                {% elif field.field_type == 'radio' %}
+                                    {% for option in field.validation_rules.split(',') if field.validation_rules %}
+                                        <label class="radio">
+                                            <input type="radio" name="{{ field.name }}" value="{{ option.strip() }}"
+                                                {% if form_data and form_data.get(field.name) == option.strip() %}checked
+                                                {% elif not form_data and field.default_value == option.strip() %}checked{% endif %}
+                                                {% if field.required and loop.first and not form_data and not field.default_value %}checked{% endif %}>
+                                            {{ option.strip() }}
+                                        </label>
+                                    {% endfor %}
+                                {% else %}
+                                    <input class="input" type="{{ field.field_type }}" name="{{ field.name }}" 
+                                        value="{{ form_data.get(field.name, field.default_value or '') }}"
+                                        {% if field.required %}required{% endif %}
+                                        placeholder="{{ field.help_text or '' }}">
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                        
+                        {% if field.help_text and field.field_type != 'textarea' %}
+                            <p class="field-help">{{ field.help_text }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                {# Start a new row after every 3 normal fields, 2 wide fields, or when mixing sizes #}
+                {% if loop.index % 3 == 0 or 
+                      (loop.index % 2 == 0 and field_size == 'wide') or
+                      (loop.index < fields|length and field_size != fields[loop.index].field_type) %}
+                    </div><div class="field-row">
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+{% endfor %} 

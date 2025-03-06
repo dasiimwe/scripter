@@ -7,6 +7,7 @@ import jinja2
 import os
 import uuid
 import sqlalchemy
+import json
 # from flask_wtf.csrf import CSRFProtect
 
 # Create instance directory if it doesn't exist
@@ -377,91 +378,62 @@ def add_field(script_id):
 
 # End user routes
 @app.route('/scripts/<int:script_id>', methods=['GET', 'POST'])
+@login_required
 def view_script(script_id):
     script = Script.query.get_or_404(script_id)
-    
-    # Check if script is active
-    if script.status != 'active' and not (current_user.is_authenticated and current_user.is_admin):
-        flash('This script is not currently available.')
-        return redirect(url_for('index'))
-    
-    # Get form fields sorted by display order
     form_fields = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order).all()
     
-    # Initialize variables for the template
     output = None
-    form_data = {}
     submission_id = None
-    
-    # Check if we're loading a previous submission
-    load_submission_id = request.args.get('load_submission')
-    if load_submission_id:
-        try:
-            submission = FormSubmission.query.get(load_submission_id)
-            if submission and submission.script_id == script_id:
-                import json
-                form_data = json.loads(submission.field_values)
-                output = submission.output
-                submission_id = submission.id
-        except Exception as e:
-            app.logger.error(f"Error loading submission: {str(e)}")
+    form_data = {}
     
     if request.method == 'POST':
-        # Collect form data
-        form_data = {}
+        # Process form submission
+        form_data = request.form.to_dict()
+        
+        # Generate script from template
+        template_content = script.template.content
+        jinja_template = jinja2.Template(template_content)
+        raw_output = jinja_template.render(**form_data)
+        
+        # Create header with form name and field values
+        header_lines = ["#" * 50]
+        header_lines.append(f"### Script - {script.name}")
+        
+        # Add field names and values
         for field in form_fields:
-            value = request.form.get(field.name, '')
-            form_data[field.name] = value
+            value = form_data.get(field.name, '')
+            # Truncate long values for the header
+            if len(value) > 50:
+                value = value[:47] + "..."
+            header_lines.append(f"# {field.label} - {value}")
         
-        # Store form data as JSON
-        import json
-        field_values_json = json.dumps(form_data)
+        header_lines.append("#" * 50)
+        header_lines.append("")  # Empty line after header
         
-        try:
-            # Process template with form data
-            template_content = script.template.content
-            template = jinja2.Template(template_content)
-            output = template.render(**form_data)
-            
-            # Create submission record
-            submission = FormSubmission(
-                script_id=script_id,
-                user_id=current_user.id if current_user.is_authenticated else None,
-                field_values=field_values_json,
-                output=output
-            )
-            
-            db.session.add(submission)
-            db.session.commit()
-            submission_id = submission.id
-            
-            # If AJAX request, return JSON response
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({
-                    'success': True,
-                    'output': output,
-                    'submission_id': submission_id
-                })
-            
-            # Otherwise, render the template with the output
-            # We don't redirect so the user stays on the same page
-        except Exception as e:
-            app.logger.error(f"Error processing template: {str(e)}")
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return jsonify({
-                    'success': False,
-                    'error': str(e)
-                }), 400
-            flash(f'Error processing template: {str(e)}')
+        # Combine header and output
+        output = "\n".join(header_lines) + raw_output
+        
+        # Save submission
+        submission = FormSubmission(
+            script_id=script_id,
+            user_id=current_user.id,
+            field_values=json.dumps(form_data),
+            output=output
+        )
+        db.session.add(submission)
+        db.session.commit()
+        submission_id = submission.id
     
-    # Render the template with the form and output
     return render_template(
-        'script_preview.html', 
+        'script_form.html', 
         script=script, 
         form_fields=form_fields, 
-        output=output,
-        form_data=form_data,
-        submission_id=submission_id
+        output=output, 
+        form_data=form_data, 
+        submission_id=submission_id,
+        is_preview=False,
+        form_action=url_for('view_script', script_id=script.id)
     )
 
 @app.route('/scripts/<int:script_id>/submit', methods=['POST'])
@@ -854,6 +826,57 @@ def view_submission(script_id, submission_id):
         return redirect(url_for('index'))
     
     return render_template('view_submission.html', script=script, submission=submission)
+
+@app.route('/admin/scripts/<int:script_id>/preview', methods=['GET', 'POST'])
+@login_required
+def script_preview(script_id):
+    if not current_user.is_admin:
+        flash('Access denied: Admin privileges required')
+        return redirect(url_for('index'))
+    
+    script = Script.query.get_or_404(script_id)
+    form_fields = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order).all()
+    
+    output = None
+    form_data = {}
+    
+    if request.method == 'POST':
+        # Process form submission
+        form_data = request.form.to_dict()
+        
+        # Generate script from template
+        template_content = script.template.content
+        jinja_template = jinja2.Template(template_content)
+        raw_output = jinja_template.render(**form_data)
+        
+        # Create header with form name and field values
+        header_lines = ["#" * 50]
+        header_lines.append(f"### Script - {script.name}")
+        
+        # Add field names and values
+        for field in form_fields:
+            value = form_data.get(field.name, '')
+            # Truncate long values for the header
+            if len(value) > 50:
+                value = value[:47] + "..."
+            header_lines.append(f"# {field.label} - {value}")
+        
+        header_lines.append("#" * 50)
+        header_lines.append("")  # Empty line after header
+        
+        # Combine header and output
+        output = "\n".join(header_lines) + raw_output
+    
+    return render_template(
+        'script_form.html', 
+        script=script, 
+        form_fields=form_fields, 
+        output=output, 
+        form_data=form_data,
+        submission_id=None,
+        is_preview=True,
+        form_action=url_for('script_preview', script_id=script.id)
+    )
 
 # Add this at the end of the file, before the if __name__ == '__main__': block
 with app.app_context():

@@ -1,0 +1,497 @@
+{% extends "base.html" %}
+
+{% block title %}Scripter - Manage Scripts{% endblock %}
+
+{% block head_extra %}
+<style>
+    .search-container {
+        margin-bottom: 1.5rem;
+    }
+    .pagination-container {
+        margin-top: 1.5rem;
+    }
+    .sort-icon {
+        margin-left: 0.25rem;
+        cursor: pointer;
+    }
+    .sort-icon:hover {
+        color: #3273dc;
+    }
+    .script-description {
+        max-width: 300px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .tag-list {
+        max-width: 200px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1rem;
+    }
+    .empty-state-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        color: #dbdbdb;
+    }
+    .admin-actions {
+        min-width: 220px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="title">Manage Scripts</h1>
+    
+    <div class="level">
+        <div class="level-left">
+            <div class="level-item">
+                <div class="field has-addons">
+                    <div class="control">
+                        <input class="input" type="text" id="search-input" placeholder="Search scripts...">
+                    </div>
+                    <div class="control">
+                        <button class="button is-info" id="search-button">
+                            <span class="icon">
+                                <i class="fas fa-search"></i>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="level-right">
+            <div class="level-item">
+                <a href="{{ url_for('add_script') }}" class="button is-primary">
+                    <span class="icon">
+                        <i class="fas fa-plus"></i>
+                    </span>
+                    <span>Add New Script</span>
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    {% if scripts %}
+    <div class="table-container">
+        <table class="table is-fullwidth is-striped is-hoverable">
+            <thead>
+                <tr>
+                    <th>
+                        Name
+                        <span class="icon sort-icon" data-sort="name">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Description
+                        <span class="icon sort-icon" data-sort="description">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Category
+                        <span class="icon sort-icon" data-sort="category">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Status
+                        <span class="icon sort-icon" data-sort="status">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Created
+                        <span class="icon sort-icon" data-sort="created">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for script in scripts %}
+                <tr class="script-row" 
+                    data-name="{{ script.name|lower }}" 
+                    data-description="{{ script.description|lower }}" 
+                    data-category="{{ script.category|lower }}"
+                    data-status="{{ script.status|lower }}"
+                    data-created="{{ script.created_at.strftime('%Y-%m-%d') }}">
+                    <td>{{ script.name }}</td>
+                    <td class="script-description" title="{{ script.description }}">{{ script.description }}</td>
+                    <td>{{ script.category }}</td>
+                    <td>
+                        {% if script.status == 'active' %}
+                        <span class="tag is-success">Active</span>
+                        {% elif script.status == 'draft' %}
+                        <span class="tag is-warning">Draft</span>
+                        {% elif script.status == 'archived' %}
+                        <span class="tag is-light">Archived</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ script.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td class="admin-actions">
+                        <div class="buttons are-small">
+                            <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-info is-outlined">
+                                <span class="icon is-small">
+                                    <i class="fas fa-edit"></i>
+                                </span>
+                                <span>Edit</span>
+                            </a>
+                            <a href="{{ url_for('script_preview', script_id=script.id) }}" class="button is-success is-outlined">
+                                <span class="icon is-small">
+                                    <i class="fas fa-eye"></i>
+                                </span>
+                                <span>Preview</span>
+                            </a>
+                            <button class="button is-danger is-outlined delete-script" data-script-id="{{ script.id }}" data-script-name="{{ script.name }}">
+                                <span class="icon is-small">
+                                    <i class="fas fa-trash"></i>
+                                </span>
+                                <span>Delete</span>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="pagination-container">
+        <div class="level">
+            <div class="level-left">
+                <div class="level-item">
+                    <div class="field has-addons">
+                        <div class="control">
+                            <span class="button is-static">Show</span>
+                        </div>
+                        <div class="control">
+                            <div class="select">
+                                <select id="items-per-page">
+                                    <option value="10">10</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="control">
+                            <span class="button is-static">per page</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="level-item">
+                    <span id="showing-info">Showing 1-10 of 0 scripts</span>
+                </div>
+            </div>
+            <div class="level-right">
+                <div class="level-item">
+                    <nav class="pagination is-small" role="navigation" aria-label="pagination">
+                        <a class="pagination-previous" id="prev-page">Previous</a>
+                        <a class="pagination-next" id="next-page">Next</a>
+                        <ul class="pagination-list" id="pagination-numbers"></ul>
+                    </nav>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i class="fas fa-file-alt"></i>
+        </div>
+        <p class="subtitle">No scripts found</p>
+        <p>Get started by creating your first script</p>
+        <a href="{{ url_for('add_script') }}" class="button is-primary mt-4">
+            <span class="icon">
+                <i class="fas fa-plus"></i>
+            </span>
+            <span>Add New Script</span>
+        </a>
+    </div>
+    {% endif %}
+    
+    <!-- Delete Confirmation Modal -->
+    <div class="modal" id="delete-modal">
+        <div class="modal-background"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title">Confirm Delete</p>
+                <button class="delete" aria-label="close" id="close-modal"></button>
+            </header>
+            <section class="modal-card-body">
+                <p>Are you sure you want to delete the script "<span id="script-name-to-delete"></span>"?</p>
+                <p class="has-text-danger mt-2">This action cannot be undone.</p>
+            </section>
+            <footer class="modal-card-foot">
+                <form id="delete-form" method="POST">
+                    <button type="submit" class="button is-danger">Delete</button>
+                    <button type="button" class="button" id="cancel-delete">Cancel</button>
+                </form>
+            </footer>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Variables for pagination
+    const scriptRows = document.querySelectorAll('.script-row');
+    const itemsPerPageSelect = document.getElementById('items-per-page');
+    const paginationNumbers = document.getElementById('pagination-numbers');
+    const showingInfo = document.getElementById('showing-info');
+    
+    // Get stored items per page or default to 10
+    let itemsPerPage = parseInt(localStorage.getItem('adminScriptsPerPage') || '10');
+    let currentPage = 1;
+    let currentSort = { column: null, direction: 'asc' };
+    
+    // Set the stored value in the select
+    if (itemsPerPageSelect) {
+        itemsPerPageSelect.value = itemsPerPage.toString();
+    }
+    
+    // Search functionality
+    const searchInput = document.getElementById('search-input');
+    const searchButton = document.getElementById('search-button');
+    
+    function performSearch() {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        
+        scriptRows.forEach(row => {
+            const name = row.getAttribute('data-name') || '';
+            const description = row.getAttribute('data-description') || '';
+            const category = row.getAttribute('data-category') || '';
+            const status = row.getAttribute('data-status') || '';
+            
+            const matches = 
+                name.includes(searchTerm) || 
+                description.includes(searchTerm) || 
+                category.includes(searchTerm) ||
+                status.includes(searchTerm);
+            
+            row.classList.toggle('is-hidden', !matches);
+        });
+        
+        currentPage = 1;
+        updatePagination();
+    }
+    
+    if (searchButton) {
+        searchButton.addEventListener('click', performSearch);
+    }
+    
+    if (searchInput) {
+        searchInput.addEventListener('keyup', function(e) {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+    }
+    
+    // Sorting functionality
+    const sortIcons = document.querySelectorAll('.sort-icon');
+    
+    sortIcons.forEach(icon => {
+        icon.addEventListener('click', function() {
+            const column = this.getAttribute('data-sort');
+            
+            // Toggle direction if clicking the same column
+            if (currentSort.column === column) {
+                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort.column = column;
+                currentSort.direction = 'asc';
+            }
+            
+            // Update sort icons
+            sortIcons.forEach(icon => {
+                const iconElement = icon.querySelector('i');
+                if (icon.getAttribute('data-sort') === currentSort.column) {
+                    iconElement.className = currentSort.direction === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+                } else {
+                    iconElement.className = 'fas fa-sort';
+                }
+            });
+            
+            // Sort the rows
+            const sortedRows = Array.from(scriptRows).sort((a, b) => {
+                const aValue = a.getAttribute(`data-${column}`);
+                const bValue = b.getAttribute(`data-${column}`);
+                
+                if (currentSort.direction === 'asc') {
+                    return aValue.localeCompare(bValue);
+                } else {
+                    return bValue.localeCompare(aValue);
+                }
+            });
+            
+            // Reorder the rows in the DOM
+            const tbody = document.querySelector('tbody');
+            sortedRows.forEach(row => tbody.appendChild(row));
+            
+            // Reset to first page
+            currentPage = 1;
+            updatePagination();
+        });
+    });
+    
+    // Pagination functionality
+    function updatePagination() {
+        // Clear pagination numbers
+        paginationNumbers.innerHTML = '';
+        
+        // Get visible rows (not hidden by search)
+        const visibleRows = Array.from(scriptRows).filter(row => !row.classList.contains('is-hidden'));
+        const totalPages = Math.ceil(visibleRows.length / itemsPerPage);
+        
+        // Update showing info
+        const start = (currentPage - 1) * itemsPerPage + 1;
+        const end = Math.min(currentPage * itemsPerPage, visibleRows.length);
+        showingInfo.textContent = `Showing ${visibleRows.length > 0 ? start : 0}-${end} of ${visibleRows.length} scripts`;
+        
+        // Disable/enable prev/next buttons
+        document.getElementById('prev-page').classList.toggle('is-disabled', currentPage === 1);
+        document.getElementById('next-page').classList.toggle('is-disabled', currentPage === totalPages || totalPages === 0);
+        
+        // Generate page numbers
+        if (totalPages <= 7) {
+            // Show all pages if 7 or fewer
+            for (let i = 1; i <= totalPages; i++) {
+                addPageNumber(i);
+            }
+        } else {
+            // Show first page
+            addPageNumber(1);
+            
+            // Calculate range around current page
+            let startPage = Math.max(2, currentPage - 2);
+            let endPage = Math.min(totalPages - 1, currentPage + 2);
+            
+            // Adjust range to always show 5 pages
+            if (startPage === 2) endPage = Math.min(totalPages - 1, 6);
+            if (endPage === totalPages - 1) startPage = Math.max(2, totalPages - 5);
+            
+            // Add ellipsis if needed
+            if (startPage > 2) {
+                addEllipsis();
+            }
+            
+            // Add page numbers
+            for (let i = startPage; i <= endPage; i++) {
+                addPageNumber(i);
+            }
+            
+            // Add last page if not included
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    addEllipsis();
+                }
+                addPageNumber(totalPages);
+            }
+        }
+        
+        // Show/hide rows based on current page
+        visibleRows.forEach((row, index) => {
+            const shouldShow = index >= (currentPage - 1) * itemsPerPage && index < currentPage * itemsPerPage;
+            row.classList.toggle('is-hidden-pagination', !shouldShow);
+        });
+        
+        function addPageNumber(pageNum) {
+            const li = document.createElement('li');
+            const a = document.createElement('a');
+            a.className = 'pagination-link' + (pageNum === currentPage ? ' is-current' : '');
+            a.setAttribute('aria-label', 'Page ' + pageNum);
+            a.textContent = pageNum;
+            a.addEventListener('click', () => {
+                currentPage = pageNum;
+                updatePagination();
+            });
+            li.appendChild(a);
+            paginationNumbers.appendChild(li);
+        }
+        
+        function addEllipsis() {
+            const li = document.createElement('li');
+            const span = document.createElement('span');
+            span.className = 'pagination-ellipsis';
+            span.innerHTML = '&hellip;';
+            li.appendChild(span);
+            paginationNumbers.appendChild(li);
+        }
+    }
+    
+    // Event listeners for pagination
+    document.getElementById('prev-page').addEventListener('click', function() {
+        if (currentPage > 1) {
+            currentPage--;
+            updatePagination();
+        }
+    });
+    
+    document.getElementById('next-page').addEventListener('click', function() {
+        const visibleRows = Array.from(scriptRows).filter(row => !row.classList.contains('is-hidden'));
+        const totalPages = Math.ceil(visibleRows.length / itemsPerPage);
+        
+        if (currentPage < totalPages) {
+            currentPage++;
+            updatePagination();
+        }
+    });
+    
+    itemsPerPageSelect.addEventListener('change', function() {
+        const newItemsPerPage = parseInt(this.value);
+        localStorage.setItem('adminScriptsPerPage', newItemsPerPage.toString());
+        itemsPerPage = newItemsPerPage;
+        currentPage = 1;
+        updatePagination();
+    });
+    
+    // Delete script functionality
+    const deleteButtons = document.querySelectorAll('.delete-script');
+    const deleteModal = document.getElementById('delete-modal');
+    const closeModalButton = document.getElementById('close-modal');
+    const cancelDeleteButton = document.getElementById('cancel-delete');
+    const deleteForm = document.getElementById('delete-form');
+    const scriptNameToDelete = document.getElementById('script-name-to-delete');
+    
+    deleteButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const scriptId = this.getAttribute('data-script-id');
+            const scriptName = this.getAttribute('data-script-name');
+            
+            deleteForm.action = `/admin/scripts/${scriptId}/delete`;
+            scriptNameToDelete.textContent = scriptName;
+            deleteModal.classList.add('is-active');
+        });
+    });
+    
+    function closeModal() {
+        deleteModal.classList.remove('is-active');
+    }
+    
+    closeModalButton.addEventListener('click', closeModal);
+    cancelDeleteButton.addEventListener('click', closeModal);
+    
+    // Close modal when clicking on background
+    deleteModal.querySelector('.modal-background').addEventListener('click', closeModal);
+    
+    // Initial pagination setup
+    updatePagination();
+    
+    // Add custom CSS for pagination hidden items
+    const style = document.createElement('style');
+    style.textContent = '.is-hidden-pagination { display: none !important; }';
+    document.head.appendChild(style);
+});
+</script>
+{% endblock %} 
