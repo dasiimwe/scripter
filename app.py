@@ -1186,5 +1186,26 @@ def admin_scripts():
     scripts = Script.query.all()
     return render_template('admin/manage_scripts.html', scripts=scripts)
 
+# Add the missing delete_script route
+@app.route('/admin/scripts/<int:script_id>/delete', methods=['POST'])
+@login_required
+def delete_script(script_id):
+    if not current_user.is_admin:
+        flash('Access denied: Admin privileges required')
+        return redirect(url_for('index'))
+    
+    script = Script.query.get_or_404(script_id)
+    
+    try:
+        # Delete the script (cascade will handle related records)
+        db.session.delete(script)
+        db.session.commit()
+        flash(f'Script "{script.name}" deleted successfully', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error deleting script: {str(e)}', 'error')
+    
+    return redirect(url_for('admin_scripts'))
+
 if __name__ == '__main__':
     app.run(debug=True)
