@@ -61,9 +61,6 @@ class User(UserMixin, db.Model):
 class Script(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.Text)
-    category = db.Column(db.String(50))
-    tags = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     creator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
@@ -192,14 +189,13 @@ def logout():
 # Admin routes
 @app.route('/admin')
 @login_required
-def admin_dashboard_main():
+def admin_main():
     if not current_user.is_admin:
         flash('Access denied: Admin privileges required')
         return redirect(url_for('index'))
     
-    scripts = Script.query.all()
-    submission_count = FormSubmission.query.count()
-    return render_template('admin/dashboard.html', scripts=scripts, submission_count=submission_count)
+    # Redirect to manage scripts page
+    return redirect(url_for('admin_scripts'))
 
 @app.route('/admin/scripts/new', methods=['GET', 'POST'])
 @login_required
@@ -210,15 +206,9 @@ def create_script():
     
     if request.method == 'POST':
         name = request.form.get('name')
-        description = request.form.get('description')
-        category = request.form.get('category')
-        tags = request.form.get('tags')
         
         script = Script(
             name=name,
-            description=description,
-            category=category,
-            tags=tags,
             creator_id=current_user.id
         )
         
@@ -251,14 +241,11 @@ def edit_script(script_id):
     
     if request.method == 'POST':
         script.name = request.form.get('name')
-        script.description = request.form.get('description')
-        script.category = request.form.get('category')
-        script.tags = request.form.get('tags')
         script.status = request.form.get('status')
         
         db.session.commit()
         flash(f'Script "{script.name}" updated successfully')
-        return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('admin_scripts'))
     
     return render_template('admin/edit_script.html', script=script)
 
@@ -1106,30 +1093,6 @@ def test_tacacs():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
-@app.route('/admin/dashboard')
-@login_required
-def admin_dashboard():
-    if not current_user.is_admin:
-        flash('You do not have permission to access this page.')
-        return redirect(url_for('index'))
-    
-    # Add user stats to the dashboard
-    user_count = User.query.count()
-    active_users = User.query.filter_by(is_active=True).count()
-    admin_users = User.query.filter_by(is_admin=True).count()
-    tacacs_users = User.query.filter_by(auth_type='tacacs').count()
-    
-    # Get existing stats
-    script_count = Script.query.count()
-    submission_count = FormSubmission.query.count()
-    
-    return render_template('admin/dashboard.html', 
-                          script_count=script_count,
-                          submission_count=submission_count,
-                          user_count=user_count,
-                          active_users=active_users,
-                          admin_users=admin_users,
-                          tacacs_users=tacacs_users)
 
 # Add these forms
 class LoginForm(FlaskForm):
