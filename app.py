@@ -238,41 +238,25 @@ def edit_script(script_id):
         return redirect(url_for('index'))
     
     script = Script.query.get_or_404(script_id)
+    template = script.template
     
     if request.method == 'POST':
+        # Update script details
         script.name = request.form.get('name')
         script.status = request.form.get('status')
+        
+        # Update template
+        template_content = request.form.get('content')
+        output_format = request.form.get('output_format')
+        
+        if template_content is not None:
+            template.version += 1
+            template.content = template_content
+            template.output_format = output_format
         
         db.session.commit()
         flash(f'Script "{script.name}" updated successfully')
         return redirect(url_for('admin_scripts'))
-    
-    return render_template('admin/edit_script.html', script=script)
-
-@app.route('/admin/scripts/<int:script_id>/template', methods=['GET', 'POST'])
-@login_required
-def edit_template(script_id):
-    if not current_user.is_admin:
-        flash('Access denied: Admin privileges required')
-        return redirect(url_for('index'))
-    
-    script = Script.query.get_or_404(script_id)
-    template = script.template
-    
-    if request.method == 'POST':
-        template_content = request.form.get('content')
-        output_format = request.form.get('output_format')
-        
-        # Increment version
-        template.version += 1
-        template.content = template_content
-        template.output_format = output_format
-        
-        db.session.commit()
-        flash('Template updated successfully')
-        
-        # Stay on the template page instead of redirecting to edit_script
-        return redirect(url_for('edit_template', script_id=script_id))
     
     # Define Jinja2 snippets for the template editor
     jinja_snippets = [
@@ -298,7 +282,13 @@ def edit_template(script_id):
         }
     ]
     
-    return render_template('admin/edit_template.html', script=script, template=template, jinja_snippets=jinja_snippets)
+    return render_template('admin/edit_script.html', script=script, template=template, jinja_snippets=jinja_snippets)
+
+@app.route('/admin/scripts/<int:script_id>/template', methods=['GET', 'POST'])
+@login_required
+def edit_template(script_id):
+    # Redirect to the merged edit_script page
+    return redirect(url_for('edit_script', script_id=script_id))
 
 @app.route('/scripts/<int:script_id>/fields', methods=['GET'])
 @login_required
