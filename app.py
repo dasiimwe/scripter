@@ -240,6 +240,8 @@ def edit_script(script_id):
     script = Script.query.get_or_404(script_id)
     template = script.template
     
+    # Form fields are automatically available through the relationship
+    
     if request.method == 'POST':
         # Update script details
         script.name = request.form.get('name')
@@ -293,12 +295,8 @@ def edit_template(script_id):
 @app.route('/scripts/<int:script_id>/fields', methods=['GET'])
 @login_required
 def manage_fields(script_id):
-    if not current_user.is_admin:
-        flash('Access denied. Admin privileges required.', 'error')
-        return redirect(url_for('index'))
-    
-    script = Script.query.get_or_404(script_id)
-    return render_template('admin/manage_fields.html', script=script)
+    # Redirect to the merged edit_script page
+    return redirect(url_for('edit_script', script_id=script_id))
 
 @app.route('/scripts/<int:script_id>/fields/add', methods=['GET', 'POST'])
 @login_required

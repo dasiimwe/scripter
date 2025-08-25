@@ -33,18 +33,41 @@
         margin: 2rem 0;
         border-top: 2px solid #e8e8e8;
     }
+    .side-by-side-container {
+        display: flex;
+        gap: 1.5rem;
+    }
+    .template-section {
+        flex: 1;
+        min-width: 0;
+    }
+    .fields-section {
+        flex: 0 0 45%;
+        min-width: 0;
+    }
+    .fields-table {
+        font-size: 0.9rem;
+    }
+    .fields-table th {
+        font-size: 0.85rem;
+    }
+    .fields-table .button {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
+    }
+    @media (max-width: 1408px) {
+        .side-by-side-container {
+            flex-direction: column;
+        }
+        .fields-section {
+            flex: 1;
+        }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <h1 class="title">Edit Script: {{ script.name }}</h1>
-
-<div class="tabs">
-    <ul>
-        <li class="is-active"><a>Script & Template</a></li>
-        <li><a href="{{ url_for('manage_fields', script_id=script.id) }}">Form Fields</a></li>
-    </ul>
-</div>
 
 <form method="POST" action="{{ url_for('edit_script', script_id=script.id) }}">
     <input type="hidden" id="script-id" value="{{ script.id }}">
@@ -53,106 +76,198 @@
     <div class="box">
         <h2 class="subtitle">Script Details</h2>
         
-        <div class="field">
-            <label class="label">Name</label>
-            <div class="control">
-                <input class="input" type="text" name="name" value="{{ script.name }}" required>
+        <div class="columns">
+            <div class="column is-half">
+                <div class="field">
+                    <label class="label">Name</label>
+                    <div class="control">
+                        <input class="input" type="text" name="name" value="{{ script.name }}" required>
+                    </div>
+                </div>
             </div>
-        </div>
-        
-        <div class="field">
-            <label class="label">Status</label>
-            <div class="control">
-                <div class="select">
-                    <select name="status">
-                        <option value="draft" {% if script.status == 'draft' %}selected{% endif %}>Draft</option>
-                        <option value="active" {% if script.status == 'active' %}selected{% endif %}>Active</option>
-                        <option value="archived" {% if script.status == 'archived' %}selected{% endif %}>Archived</option>
-                    </select>
+            <div class="column is-half">
+                <div class="field">
+                    <label class="label">Status</label>
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select name="status">
+                                <option value="draft" {% if script.status == 'draft' %}selected{% endif %}>Draft</option>
+                                <option value="active" {% if script.status == 'active' %}selected{% endif %}>Active</option>
+                                <option value="archived" {% if script.status == 'archived' %}selected{% endif %}>Archived</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
     
-    <!-- Template Section -->
-    <div class="box">
-        <h2 class="subtitle">Template Content</h2>
-        
-        <div class="field">
-            <label class="label">Template (Jinja2)</label>
-            <div class="field is-grouped">
-                <div class="control is-expanded">
-                    <div class="dropdown" id="snippet-dropdown">
-                        <div class="dropdown-trigger">
-                            <button type="button" class="button is-info is-light" aria-haspopup="true" aria-controls="dropdown-menu">
-                                <span>Insert Jinja2 Snippet</span>
-                                <span class="icon is-small">
-                                    <i class="fas fa-angle-down" aria-hidden="true"></i>
-                                </span>
-                            </button>
-                        </div>
-                        <div class="dropdown-menu" id="dropdown-menu" role="menu">
-                            <div class="dropdown-content">
-                                {% for snippet in jinja_snippets %}
-                                <a class="dropdown-item snippet-item" data-snippet="{{ snippet.code }}">
-                                    {{ snippet.name }}
-                                </a>
-                                {% endfor %}
+    <!-- Template and Form Fields Side by Side -->
+    <div class="side-by-side-container">
+        <!-- Template Section -->
+        <div class="template-section">
+            <div class="box">
+                <h2 class="subtitle">Template Content</h2>
+                
+                <div class="field">
+                    <label class="label">Template (Jinja2)</label>
+                    <div class="field is-grouped">
+                        <div class="control is-expanded">
+                            <div class="dropdown" id="snippet-dropdown">
+                                <div class="dropdown-trigger">
+                                    <button type="button" class="button is-info is-light is-small" aria-haspopup="true" aria-controls="dropdown-menu">
+                                        <span>Insert Snippet</span>
+                                        <span class="icon is-small">
+                                            <i class="fas fa-angle-down" aria-hidden="true"></i>
+                                        </span>
+                                    </button>
+                                </div>
+                                <div class="dropdown-menu" id="dropdown-menu" role="menu">
+                                    <div class="dropdown-content">
+                                        {% for snippet in jinja_snippets %}
+                                        <a class="dropdown-item snippet-item" data-snippet="{{ snippet.code }}">
+                                            {{ snippet.name }}
+                                        </a>
+                                        {% endfor %}
+                                    </div>
+                                </div>
                             </div>
+                        </div>
+                        <div class="control">
+                            <div class="select is-small">
+                                <select name="output_format">
+                                    <option value="html" {% if template.output_format == 'html' %}selected{% endif %}>HTML</option>
+                                    <option value="text" {% if template.output_format == 'text' %}selected{% endif %}>Plain Text</option>
+                                    <option value="markdown" {% if template.output_format == 'markdown' %}selected{% endif %}>Markdown</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="control">
+                        <textarea id="template-editor" name="content">{{ template.content }}</textarea>
+                    </div>
+                    <p class="help">Use {{ "{{ variable_name }}" }} syntax for variables</p>
+                </div>
+                
+                <div class="field">
+                    <div class="control">
+                        <button id="detect-variables" type="button" class="button is-info is-small">
+                            <span class="icon">
+                                <i class="fas fa-magic"></i>
+                            </span>
+                            <span>Detect Variables</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="detected-variables" class="is-hidden">
+                    <h4 class="title is-6">Detected Variables</h4>
+                    <div class="tags" id="variable-tags"></div>
+                    
+                    <div class="field">
+                        <div class="control">
+                            <button id="add-all-fields" type="button" class="button is-success is-small">
+                                <span class="icon">
+                                    <i class="fas fa-plus-circle"></i>
+                                </span>
+                                <span>Add All as Fields</span>
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="control">
-                <textarea id="template-editor" name="content">{{ template.content }}</textarea>
-            </div>
-            <p class="help">Use {{ "{{ variable_name }}" }} syntax for variables</p>
         </div>
         
-        <div class="field">
-            <label class="label">Output Format</label>
-            <div class="control">
-                <div class="select">
-                    <select name="output_format">
-                        <option value="html" {% if template.output_format == 'html' %}selected{% endif %}>HTML</option>
-                        <option value="text" {% if template.output_format == 'text' %}selected{% endif %}>Plain Text</option>
-                        <option value="markdown" {% if template.output_format == 'markdown' %}selected{% endif %}>Markdown</option>
-                    </select>
+        <!-- Form Fields Section -->
+        <div class="fields-section">
+            <div class="box">
+                <div class="level">
+                    <div class="level-left">
+                        <div class="level-item">
+                            <h2 class="subtitle">Form Fields</h2>
+                        </div>
+                    </div>
+                    <div class="level-right">
+                        <div class="level-item">
+                            <a href="{{ url_for('add_field', script_id=script.id) }}" class="button is-primary is-small">
+                                <span class="icon">
+                                    <i class="fas fa-plus"></i>
+                                </span>
+                                <span>Add Field</span>
+                            </a>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
-        
-        <div class="field">
-            <div class="control">
-                <button id="detect-variables" type="button" class="button is-info">
-                    <span class="icon">
-                        <i class="fas fa-magic"></i>
-                    </span>
-                    <span>Detect Variables</span>
-                </button>
-            </div>
-        </div>
-        
-        <div id="detected-variables" class="is-hidden">
-            <h4 class="title is-5">Detected Variables</h4>
-            <div class="tags" id="variable-tags"></div>
-            
-            <div class="field">
-                <div class="control">
-                    <button id="add-all-fields" type="button" class="button is-success">
-                        <span class="icon">
-                            <i class="fas fa-plus-circle"></i>
-                        </span>
-                        <span>Add All as Form Fields</span>
-                    </button>
-                </div>
-                <p class="help">Click on individual variables to add them as form fields, or click the button above to add all.</p>
+                
+                {% if script.form_fields %}
+                    <div class="table-container">
+                        <table class="table is-fullwidth fields-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Label</th>
+                                    <th>Type</th>
+                                    <th>Req.</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sortable-fields">
+                                {% for field in script.form_fields|sort(attribute='display_order') %}
+                                <tr data-field-id="{{ field.id }}">
+                                    <td title="{{ field.name }}">
+                                        <small>{{ field.name[:15] }}{% if field.name|length > 15 %}...{% endif %}</small>
+                                    </td>
+                                    <td title="{{ field.label }}">
+                                        <small>{{ field.label[:20] }}{% if field.label|length > 20 %}...{% endif %}</small>
+                                    </td>
+                                    <td><small>{{ field.field_type }}</small></td>
+                                    <td>
+                                        {% if field.required %}
+                                        <span class="icon has-text-success is-small">
+                                            <i class="fas fa-check"></i>
+                                        </span>
+                                        {% else %}
+                                        <span class="icon has-text-grey-lighter is-small">
+                                            <i class="fas fa-times"></i>
+                                        </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="field has-addons">
+                                            <p class="control">
+                                                <a href="{{ url_for('add_field', script_id=script.id) }}?edit={{ field.id }}" 
+                                                   class="button is-link is-small" title="Edit">
+                                                    <span class="icon is-small">
+                                                        <i class="fas fa-edit"></i>
+                                                    </span>
+                                                </a>
+                                            </p>
+                                            <p class="control">
+                                                <button type="button" class="button is-danger is-small delete-field" 
+                                                        data-field-id="{{ field.id }}" title="Delete">
+                                                    <span class="icon is-small">
+                                                        <i class="fas fa-trash"></i>
+                                                    </span>
+                                                </button>
+                                            </p>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="notification is-warning is-light">
+                        <p><small>No form fields defined yet. Add fields to collect data for your template.</small></p>
+                    </div>
+                {% endif %}
             </div>
         </div>
     </div>
     
     <!-- Action Buttons -->
-    <div class="field is-grouped">
+    <div class="field is-grouped mt-5">
         <div class="control">
             <button type="submit" class="button is-primary">Save All Changes</button>
         </div>
@@ -167,4 +282,34 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/jinja2/jinja2.min.js"></script>
 <script src="{{ url_for('static', filename='js/template-editor.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Delete field functionality
+        document.querySelectorAll('.delete-field').forEach(button => {
+            button.addEventListener('click', function() {
+                const fieldId = this.getAttribute('data-field-id');
+                if (confirm('Are you sure you want to delete this field? This action cannot be undone.')) {
+                    fetch(`/api/scripts/{{ script.id }}/fields/${fieldId}/delete`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            location.reload();
+                        } else {
+                            alert('Error deleting field: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error deleting field');
+                    });
+                }
+            });
+        });
+    });
+</script>
 {% endblock %}
