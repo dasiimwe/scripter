@@ -55,6 +55,28 @@
         padding: 0.25rem 0.5rem;
         font-size: 0.8rem;
     }
+    .drag-handle {
+        cursor: grab;
+        color: #dbdbdb;
+        padding: 0.25rem;
+    }
+    .drag-handle:hover {
+        color: #3273dc;
+    }
+    .drag-handle:active {
+        cursor: grabbing;
+    }
+    .sortable-row {
+        transition: background-color 0.2s ease;
+    }
+    .sortable-row.dragging {
+        opacity: 0.5;
+        background-color: #f5f5f5;
+    }
+    .sortable-row.drag-over {
+        background-color: #e8f4fd;
+        border-top: 2px solid #3273dc;
+    }
     @media (max-width: 1408px) {
         .side-by-side-container {
             flex-direction: column;
@@ -162,17 +184,33 @@
                 
                 <div id="detected-variables" class="is-hidden">
                     <h4 class="title is-6">Detected Variables</h4>
-                    <div class="tags" id="variable-tags"></div>
                     
-                    <div class="field">
-                        <div class="control">
-                            <button id="add-all-fields" type="button" class="button is-success is-small">
-                                <span class="icon">
-                                    <i class="fas fa-plus-circle"></i>
-                                </span>
-                                <span>Add All as Fields</span>
-                            </button>
+                    <!-- Existing Variables Section -->
+                    <div id="existing-variables-section" class="mb-4">
+                        <h5 class="subtitle is-6 mb-2">Already added as fields:</h5>
+                        <div class="tags" id="existing-variable-tags"></div>
+                    </div>
+                    
+                    <!-- New Variables Section -->
+                    <div id="new-variables-section">
+                        <div class="level is-mobile">
+                            <div class="level-left">
+                                <div class="level-item">
+                                    <h5 class="subtitle is-6 mb-2">Available to add:</h5>
+                                </div>
+                            </div>
+                            <div class="level-right">
+                                <div class="level-item">
+                                    <button id="add-all-fields" type="button" class="button is-success is-small">
+                                        <span class="icon">
+                                            <i class="fas fa-plus-circle"></i>
+                                        </span>
+                                        <span>Add All</span>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
+                        <div class="tags" id="new-variable-tags"></div>
                     </div>
                 </div>
             </div>
@@ -189,12 +227,12 @@
                     </div>
                     <div class="level-right">
                         <div class="level-item">
-                            <a href="{{ url_for('add_field', script_id=script.id) }}" class="button is-primary is-small">
+                            <button type="button" class="button is-primary is-small" id="add-field-btn">
                                 <span class="icon">
                                     <i class="fas fa-plus"></i>
                                 </span>
                                 <span>Add Field</span>
-                            </a>
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -204,6 +242,7 @@
                         <table class="table is-fullwidth fields-table">
                             <thead>
                                 <tr>
+                                    <th width="20"></th>
                                     <th>Name</th>
                                     <th>Label</th>
                                     <th>Type</th>
@@ -213,7 +252,10 @@
                             </thead>
                             <tbody id="sortable-fields">
                                 {% for field in script.form_fields|sort(attribute='display_order') %}
-                                <tr data-field-id="{{ field.id }}">
+                                <tr class="sortable-row" data-field-id="{{ field.id }}" data-display-order="{{ field.display_order }}" draggable="true">
+                                    <td class="drag-handle" title="Drag to reorder">
+                                        <i class="fas fa-grip-vertical"></i>
+                                    </td>
                                     <td title="{{ field.name }}">
                                         <small>{{ field.name[:15] }}{% if field.name|length > 15 %}...{% endif %}</small>
                                     </td>
@@ -235,12 +277,12 @@
                                     <td>
                                         <div class="field has-addons">
                                             <p class="control">
-                                                <a href="{{ url_for('add_field', script_id=script.id) }}?edit={{ field.id }}" 
-                                                   class="button is-link is-small" title="Edit">
+                                                <button type="button" class="button is-link is-small edit-field" 
+                                                        data-field-id="{{ field.id }}" title="Edit">
                                                     <span class="icon is-small">
                                                         <i class="fas fa-edit"></i>
                                                     </span>
-                                                </a>
+                                                </button>
                                             </p>
                                             <p class="control">
                                                 <button type="button" class="button is-danger is-small delete-field" 
@@ -276,6 +318,102 @@
         </div>
     </div>
 </form>
+
+<!-- Add/Edit Field Modal -->
+<div class="modal" id="field-modal">
+    <div class="modal-background"></div>
+    <div class="modal-card">
+        <header class="modal-card-head">
+            <p class="modal-card-title" id="modal-title">Add Form Field</p>
+            <button class="delete" aria-label="close" id="modal-close"></button>
+        </header>
+        <section class="modal-card-body">
+            <form id="field-form">
+                <input type="hidden" id="field-id" name="field_id">
+                
+                <div class="field">
+                    <label class="label">Field Name (Variable)</label>
+                    <div class="control">
+                        <input class="input" type="text" id="field-name" name="name" required>
+                    </div>
+                    <p class="help">This is the variable name used in the template (e.g., "first_name")</p>
+                </div>
+                
+                <div class="field">
+                    <label class="label">Display Label</label>
+                    <div class="control">
+                        <input class="input" type="text" id="field-label" name="label" required>
+                    </div>
+                    <p class="help">Label shown to users (e.g., "First Name")</p>
+                </div>
+                
+                <div class="field">
+                    <label class="label">Field Type</label>
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select name="field_type" id="field-type">
+                                <option value="text">Text</option>
+                                <option value="textarea">Text Area</option>
+                                <option value="number">Number</option>
+                                <option value="email">Email</option>
+                                <option value="date">Date</option>
+                                <option value="select">Dropdown</option>
+                                <option value="checkbox">Checkbox</option>
+                                <option value="radio">Radio Buttons</option>
+                                <option value="url">URL</option>
+                                <option value="password">Password</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="field">
+                    <div class="control">
+                        <label class="checkbox">
+                            <input type="checkbox" id="field-required" name="required">
+                            Required field
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="field">
+                    <label class="label">Default Value</label>
+                    <div class="control">
+                        <input class="input" type="text" id="field-default" name="default_value">
+                    </div>
+                </div>
+                
+                <div class="field">
+                    <label class="label">Help Text</label>
+                    <div class="control">
+                        <textarea class="textarea" id="field-help" name="help_text" rows="2"></textarea>
+                    </div>
+                    <p class="help">Explanatory text shown to users</p>
+                </div>
+                
+                <div id="options-container" class="field is-hidden">
+                    <label class="label">Options</label>
+                    <div class="control">
+                        <textarea class="textarea" id="field-options" name="validation_rules" rows="3" placeholder="One option per line"></textarea>
+                    </div>
+                    <p class="help">For dropdown, radio buttons, or checkboxes. One option per line.</p>
+                </div>
+                
+                <div class="field">
+                    <label class="label">Display Order</label>
+                    <div class="control">
+                        <input class="input" type="number" id="field-order" name="display_order" value="0" min="0">
+                    </div>
+                </div>
+            </form>
+        </section>
+        <footer class="modal-card-foot">
+            <button class="button is-primary" id="save-field">Save Field</button>
+            <button class="button" id="cancel-field">Cancel</button>
+        </footer>
+    </div>
+</div>
+</form>
 {% endblock %}
 
 {% block scripts %}
@@ -284,6 +422,241 @@
 <script src="{{ url_for('static', filename='js/template-editor.js') }}"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
+        const modal = document.getElementById('field-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const fieldForm = document.getElementById('field-form');
+        const scriptId = {{ script.id }};
+        
+        // Modal controls
+        const openModal = () => modal.classList.add('is-active');
+        const closeModal = () => {
+            modal.classList.remove('is-active');
+            fieldForm.reset();
+            document.getElementById('field-id').value = '';
+        };
+        
+        // Close modal buttons
+        document.getElementById('modal-close').addEventListener('click', closeModal);
+        document.getElementById('cancel-field').addEventListener('click', closeModal);
+        document.querySelector('.modal-background').addEventListener('click', closeModal);
+        
+        // Add field button
+        document.getElementById('add-field-btn').addEventListener('click', function() {
+            modalTitle.textContent = 'Add Form Field';
+            document.getElementById('field-id').value = '';
+            fieldForm.reset();
+            openModal();
+        });
+        
+        // Edit field buttons
+        document.querySelectorAll('.edit-field').forEach(button => {
+            button.addEventListener('click', function() {
+                const fieldId = this.getAttribute('data-field-id');
+                modalTitle.textContent = 'Edit Form Field';
+                
+                // Fetch field data
+                fetch(`/api/scripts/${scriptId}/fields/${fieldId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            const field = data.field;
+                            document.getElementById('field-id').value = field.id;
+                            document.getElementById('field-name').value = field.name;
+                            document.getElementById('field-label').value = field.label;
+                            document.getElementById('field-type').value = field.field_type;
+                            document.getElementById('field-required').checked = field.required;
+                            document.getElementById('field-default').value = field.default_value || '';
+                            document.getElementById('field-help').value = field.help_text || '';
+                            document.getElementById('field-order').value = field.display_order;
+                            
+                            // Handle options for select/radio/checkbox
+                            if (['select', 'radio', 'checkbox'].includes(field.field_type)) {
+                                document.getElementById('options-container').classList.remove('is-hidden');
+                                document.getElementById('field-options').value = field.validation_rules || '';
+                            } else {
+                                document.getElementById('options-container').classList.add('is-hidden');
+                            }
+                            
+                            openModal();
+                        } else {
+                            alert('Error loading field data');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error loading field data');
+                    });
+            });
+        });
+        
+        // Field type change handler
+        document.getElementById('field-type').addEventListener('change', function() {
+            const optionsContainer = document.getElementById('options-container');
+            if (['select', 'radio', 'checkbox'].includes(this.value)) {
+                optionsContainer.classList.remove('is-hidden');
+            } else {
+                optionsContainer.classList.add('is-hidden');
+            }
+        });
+        
+        // Save field
+        document.getElementById('save-field').addEventListener('click', function() {
+            const fieldId = document.getElementById('field-id').value;
+            const formData = new FormData(fieldForm);
+            const data = {
+                name: formData.get('name'),
+                label: formData.get('label'),
+                field_type: formData.get('field_type'),
+                required: formData.get('required') ? true : false,
+                default_value: formData.get('default_value'),
+                help_text: formData.get('help_text'),
+                display_order: parseInt(formData.get('display_order')) || 0,
+                validation_rules: formData.get('validation_rules')
+            };
+            
+            const url = fieldId 
+                ? `/api/scripts/${scriptId}/fields/${fieldId}/update`
+                : `/api/scripts/${scriptId}/fields/create`;
+            
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(data)
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.success) {
+                    closeModal();
+                    location.reload();
+                } else {
+                    alert('Error saving field: ' + (result.error || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error saving field');
+            });
+        });
+        
+        // Drag and drop functionality for field reordering
+        let draggedElement = null;
+        const sortableRows = document.querySelectorAll('.sortable-row');
+        
+        sortableRows.forEach(row => {
+            row.addEventListener('dragstart', function(e) {
+                draggedElement = this;
+                this.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/html', this.outerHTML);
+            });
+            
+            row.addEventListener('dragend', function(e) {
+                this.classList.remove('dragging');
+                // Remove drag-over class from all rows
+                sortableRows.forEach(r => r.classList.remove('drag-over'));
+                draggedElement = null;
+            });
+            
+            row.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                
+                if (this !== draggedElement) {
+                    // Remove drag-over from all rows first
+                    sortableRows.forEach(r => r.classList.remove('drag-over'));
+                    // Add to current row
+                    this.classList.add('drag-over');
+                }
+            });
+            
+            row.addEventListener('dragenter', function(e) {
+                e.preventDefault();
+            });
+            
+            row.addEventListener('dragleave', function(e) {
+                // Only remove drag-over if we're actually leaving the row
+                if (!this.contains(e.relatedTarget)) {
+                    this.classList.remove('drag-over');
+                }
+            });
+            
+            row.addEventListener('drop', function(e) {
+                e.preventDefault();
+                
+                if (this !== draggedElement) {
+                    // Get the current positions
+                    const draggedId = draggedElement.dataset.fieldId;
+                    const droppedOnId = this.dataset.fieldId;
+                    
+                    // Determine if we're dropping above or below
+                    const rect = this.getBoundingClientRect();
+                    const dropY = e.clientY;
+                    const rowMiddle = rect.top + rect.height / 2;
+                    const insertAfter = dropY > rowMiddle;
+                    
+                    // Move the element in the DOM
+                    const tbody = document.getElementById('sortable-fields');
+                    if (insertAfter) {
+                        // Insert after the target row
+                        if (this.nextSibling) {
+                            tbody.insertBefore(draggedElement, this.nextSibling);
+                        } else {
+                            tbody.appendChild(draggedElement);
+                        }
+                    } else {
+                        // Insert before the target row
+                        tbody.insertBefore(draggedElement, this);
+                    }
+                    
+                    // Update display orders and send to server
+                    updateFieldOrder();
+                }
+                
+                // Clean up classes
+                this.classList.remove('drag-over');
+                draggedElement.classList.remove('dragging');
+            });
+        });
+        
+        // Function to update field order
+        function updateFieldOrder() {
+            const rows = document.querySelectorAll('#sortable-fields .sortable-row');
+            const newOrder = [];
+            
+            rows.forEach((row, index) => {
+                const fieldId = row.dataset.fieldId;
+                const newDisplayOrder = index + 1;
+                row.dataset.displayOrder = newDisplayOrder;
+                
+                newOrder.push({
+                    field_id: parseInt(fieldId),
+                    display_order: newDisplayOrder
+                });
+            });
+            
+            // Send the new order to the server
+            fetch(`/api/scripts/${scriptId}/fields/reorder`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ fields: newOrder })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    console.error('Failed to update field order:', data.error);
+                    // Optionally reload the page to restore the original order
+                    // location.reload();
+                }
+            })
+            .catch(error => {
+                console.error('Error updating field order:', error);
+            });
+        }
+        
         // Delete field functionality
         document.querySelectorAll('.delete-field').forEach(button => {
             button.addEventListener('click', function() {

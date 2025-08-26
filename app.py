@@ -555,8 +555,23 @@ def detect_variables(script_id):
             if '.' in var_with_attr:
                 variables.add(var_with_attr.split('.')[0])
         
+        # Get existing form fields for this script
+        script = Script.query.get_or_404(script_id)
+        existing_field_names = set(field.name for field in script.form_fields)
+        
+        # Separate variables into existing and new
+        existing_variables = list(variables & existing_field_names)
+        new_variables = list(variables - existing_field_names)
+        
         app.logger.info(f"Detected variables: {variables}")
-        return jsonify({'variables': list(variables)})
+        app.logger.info(f"Existing variables: {existing_variables}")
+        app.logger.info(f"New variables: {new_variables}")
+        
+        return jsonify({
+            'variables': list(variables),
+            'existing_variables': existing_variables,
+            'new_variables': new_variables
+        })
     except Exception as e:
         app.logger.error(f"Error in detect_variables: {str(e)}", exc_info=True)
         return jsonify({'error': f'Error detecting variables: {str(e)}'}), 500
@@ -616,6 +631,152 @@ def delete_field(script_id, field_id):
         db.session.delete(field)
         db.session.commit()
         return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/scripts/<int:script_id>/fields/<int:field_id>', methods=['GET'])
+@login_required
+def get_field(script_id, field_id):
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    
+    field = FormField.query.get_or_404(field_id)
+    
+    # Verify the field belongs to the script
+    if field.script_id != script_id:
+        return jsonify({'success': False, 'error': 'Invalid field ID'}), 400
+    
+    return jsonify({
+        'success': True,
+        'field': {
+            'id': field.id,
+            'name': field.name,
+            'label': field.label,
+            'field_type': field.field_type,
+            'required': field.required,
+            'default_value': field.default_value,
+            'help_text': field.help_text,
+            'validation_rules': field.validation_rules,
+            'display_order': field.display_order,
+            'conditional_logic': field.conditional_logic
+        }
+    })
+
+@app.route('/api/scripts/<int:script_id>/fields/create', methods=['POST'])
+@login_required
+def create_field_api(script_id):
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    
+    script = Script.query.get_or_404(script_id)
+    data = request.json
+    
+    # Validate required fields
+    if not data.get('name') or not data.get('label'):
+        return jsonify({'success': False, 'error': 'Name and label are required'})
+    
+    # Check if field name already exists
+    existing_field = FormField.query.filter_by(script_id=script_id, name=data.get('name')).first()
+    if existing_field:
+        return jsonify({'success': False, 'error': f'Field "{data.get("name")}" already exists'})
+    
+    try:
+        # Get the next display order
+        max_order = db.session.query(db.func.max(FormField.display_order)).filter_by(script_id=script_id).scalar() or 0
+        
+        field = FormField(
+            script_id=script_id,
+            name=data.get('name'),
+            label=data.get('label'),
+            field_type=data.get('field_type', 'text'),
+            required=data.get('required', False),
+            default_value=data.get('default_value', ''),
+            help_text=data.get('help_text', ''),
+            validation_rules=data.get('validation_rules', ''),
+            display_order=data.get('display_order', max_order + 1)
+        )
+        
+        db.session.add(field)
+        db.session.commit()
+        
+        return jsonify({'success': True, 'field_id': field.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/scripts/<int:script_id>/fields/<int:field_id>/update', methods=['POST'])
+@login_required
+def update_field_api(script_id, field_id):
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    
+    field = FormField.query.get_or_404(field_id)
+    
+    # Verify the field belongs to the script
+    if field.script_id != script_id:
+        return jsonify({'success': False, 'error': 'Invalid field ID'}), 400
+    
+    data = request.json
+    
+    # Validate required fields
+    if not data.get('name') or not data.get('label'):
+        return jsonify({'success': False, 'error': 'Name and label are required'})
+    
+    # Check if field name already exists (excluding current field)
+    existing_field = FormField.query.filter(
+        FormField.script_id == script_id,
+        FormField.name == data.get('name'),
+        FormField.id != field_id
+    ).first()
+    if existing_field:
+        return jsonify({'success': False, 'error': f'Field "{data.get("name")}" already exists'})
+    
+    try:
+        field.name = data.get('name')
+        field.label = data.get('label')
+        field.field_type = data.get('field_type', 'text')
+        field.required = data.get('required', False)
+        field.default_value = data.get('default_value', '')
+        field.help_text = data.get('help_text', '')
+        field.validation_rules = data.get('validation_rules', '')
+        field.display_order = data.get('display_order', field.display_order)
+        
+        db.session.commit()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/scripts/<int:script_id>/fields/reorder', methods=['POST'])
+@login_required
+def reorder_fields(script_id):
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    
+    script = Script.query.get_or_404(script_id)
+    data = request.json
+    
+    if not data or 'fields' not in data:
+        return jsonify({'success': False, 'error': 'No field order data provided'})
+    
+    try:
+        # Update display_order for each field
+        for field_data in data['fields']:
+            field_id = field_data.get('field_id')
+            display_order = field_data.get('display_order')
+            
+            if not field_id or display_order is None:
+                continue
+                
+            field = FormField.query.filter_by(id=field_id, script_id=script_id).first()
+            if field:
+                field.display_order = display_order
+        
+        db.session.commit()
+        return jsonify({'success': True})
+        
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)})
