@@ -17,12 +17,6 @@
     .sort-icon:hover {
         color: #3273dc;
     }
-    .script-description {
-        max-width: 300px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
     .tag-list {
         max-width: 200px;
         white-space: nowrap;
@@ -89,18 +83,6 @@
                         </span>
                     </th>
                     <th>
-                        Description
-                        <span class="icon sort-icon" data-sort="description">
-                            <i class="fas fa-sort"></i>
-                        </span>
-                    </th>
-                    <th>
-                        Category
-                        <span class="icon sort-icon" data-sort="category">
-                            <i class="fas fa-sort"></i>
-                        </span>
-                    </th>
-                    <th>
                         Status
                         <span class="icon sort-icon" data-sort="status">
                             <i class="fas fa-sort"></i>
@@ -119,13 +101,9 @@
                 {% for script in scripts %}
                 <tr class="script-row" 
                     data-name="{{ script.name|lower }}" 
-                    data-description="{{ script.description|lower }}" 
-                    data-category="{{ script.category|lower }}"
                     data-status="{{ script.status|lower }}"
                     data-created="{{ script.created_at.strftime('%Y-%m-%d') }}">
                     <td>{{ script.name }}</td>
-                    <td class="script-description" title="{{ script.description }}">{{ script.description }}</td>
-                    <td>{{ script.category }}</td>
                     <td>
                         {% if script.status == 'active' %}
                         <span class="tag is-success">Active</span>

@@ -33,8 +33,14 @@
                 </a>
                 
                 {% if current_user.is_authenticated and current_user.is_admin %}
-                <a class="navbar-item" href="{{ url_for('admin_dashboard') }}">
-                    Admin Dashboard
+                <a class="navbar-item" href="{{ url_for('admin_scripts') }}">
+                    Manage Scripts
+                </a>
+                <a class="navbar-item" href="{{ url_for('admin_users') }}">
+                    Manage Users
+                </a>
+                <a class="navbar-item" href="{{ url_for('auth_config') }}">
+                    Auth Settings
                 </a>
                 {% endif %}
             </div>

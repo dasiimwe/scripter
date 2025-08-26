@@ -61,9 +61,6 @@ class User(UserMixin, db.Model):
 class Script(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.Text)
-    category = db.Column(db.String(50))
-    tags = db.Column(db.String(200))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     creator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
@@ -192,14 +189,13 @@ def logout():
 # Admin routes
 @app.route('/admin')
 @login_required
-def admin_dashboard_main():
+def admin_main():
     if not current_user.is_admin:
         flash('Access denied: Admin privileges required')
         return redirect(url_for('index'))
     
-    scripts = Script.query.all()
-    submission_count = FormSubmission.query.count()
-    return render_template('admin/dashboard.html', scripts=scripts, submission_count=submission_count)
+    # Redirect to manage scripts page
+    return redirect(url_for('admin_scripts'))
 
 @app.route('/admin/scripts/new', methods=['GET', 'POST'])
 @login_required
@@ -210,15 +206,9 @@ def create_script():
     
     if request.method == 'POST':
         name = request.form.get('name')
-        description = request.form.get('description')
-        category = request.form.get('category')
-        tags = request.form.get('tags')
         
         script = Script(
             name=name,
-            description=description,
-            category=category,
-            tags=tags,
             creator_id=current_user.id
         )
         
@@ -248,44 +238,27 @@ def edit_script(script_id):
         return redirect(url_for('index'))
     
     script = Script.query.get_or_404(script_id)
-    
-    if request.method == 'POST':
-        script.name = request.form.get('name')
-        script.description = request.form.get('description')
-        script.category = request.form.get('category')
-        script.tags = request.form.get('tags')
-        script.status = request.form.get('status')
-        
-        db.session.commit()
-        flash(f'Script "{script.name}" updated successfully')
-        return redirect(url_for('admin_dashboard'))
-    
-    return render_template('admin/edit_script.html', script=script)
-
-@app.route('/admin/scripts/<int:script_id>/template', methods=['GET', 'POST'])
-@login_required
-def edit_template(script_id):
-    if not current_user.is_admin:
-        flash('Access denied: Admin privileges required')
-        return redirect(url_for('index'))
-    
-    script = Script.query.get_or_404(script_id)
     template = script.template
     
+    # Form fields are automatically available through the relationship
+    
     if request.method == 'POST':
+        # Update script details
+        script.name = request.form.get('name')
+        script.status = request.form.get('status')
+        
+        # Update template
         template_content = request.form.get('content')
         output_format = request.form.get('output_format')
         
-        # Increment version
-        template.version += 1
-        template.content = template_content
-        template.output_format = output_format
+        if template_content is not None:
+            template.version += 1
+            template.content = template_content
+            template.output_format = output_format
         
         db.session.commit()
-        flash('Template updated successfully')
-        
-        # Stay on the template page instead of redirecting to edit_script
-        return redirect(url_for('edit_template', script_id=script_id))
+        flash(f'Script "{script.name}" updated successfully')
+        return redirect(url_for('admin_scripts'))
     
     # Define Jinja2 snippets for the template editor
     jinja_snippets = [
@@ -311,17 +284,19 @@ def edit_template(script_id):
         }
     ]
     
-    return render_template('admin/edit_template.html', script=script, template=template, jinja_snippets=jinja_snippets)
+    return render_template('admin/edit_script.html', script=script, template=template, jinja_snippets=jinja_snippets)
+
+@app.route('/admin/scripts/<int:script_id>/template', methods=['GET', 'POST'])
+@login_required
+def edit_template(script_id):
+    # Redirect to the merged edit_script page
+    return redirect(url_for('edit_script', script_id=script_id))
 
 @app.route('/scripts/<int:script_id>/fields', methods=['GET'])
 @login_required
 def manage_fields(script_id):
-    if not current_user.is_admin:
-        flash('Access denied. Admin privileges required.', 'error')
-        return redirect(url_for('index'))
-    
-    script = Script.query.get_or_404(script_id)
-    return render_template('admin/manage_fields.html', script=script)
+    # Redirect to the merged edit_script page
+    return redirect(url_for('edit_script', script_id=script_id))
 
 @app.route('/scripts/<int:script_id>/fields/add', methods=['GET', 'POST'])
 @login_required
@@ -580,8 +555,23 @@ def detect_variables(script_id):
             if '.' in var_with_attr:
                 variables.add(var_with_attr.split('.')[0])
         
+        # Get existing form fields for this script
+        script = Script.query.get_or_404(script_id)
+        existing_field_names = set(field.name for field in script.form_fields)
+        
+        # Separate variables into existing and new
+        existing_variables = list(variables & existing_field_names)
+        new_variables = list(variables - existing_field_names)
+        
         app.logger.info(f"Detected variables: {variables}")
-        return jsonify({'variables': list(variables)})
+        app.logger.info(f"Existing variables: {existing_variables}")
+        app.logger.info(f"New variables: {new_variables}")
+        
+        return jsonify({
+            'variables': list(variables),
+            'existing_variables': existing_variables,
+            'new_variables': new_variables
+        })
     except Exception as e:
         app.logger.error(f"Error in detect_variables: {str(e)}", exc_info=True)
         return jsonify({'error': f'Error detecting variables: {str(e)}'}), 500
@@ -641,6 +631,152 @@ def delete_field(script_id, field_id):
         db.session.delete(field)
         db.session.commit()
         return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/scripts/<int:script_id>/fields/<int:field_id>', methods=['GET'])
+@login_required
+def get_field(script_id, field_id):
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    
+    field = FormField.query.get_or_404(field_id)
+    
+    # Verify the field belongs to the script
+    if field.script_id != script_id:
+        return jsonify({'success': False, 'error': 'Invalid field ID'}), 400
+    
+    return jsonify({
+        'success': True,
+        'field': {
+            'id': field.id,
+            'name': field.name,
+            'label': field.label,
+            'field_type': field.field_type,
+            'required': field.required,
+            'default_value': field.default_value,
+            'help_text': field.help_text,
+            'validation_rules': field.validation_rules,
+            'display_order': field.display_order,
+            'conditional_logic': field.conditional_logic
+        }
+    })
+
+@app.route('/api/scripts/<int:script_id>/fields/create', methods=['POST'])
+@login_required
+def create_field_api(script_id):
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    
+    script = Script.query.get_or_404(script_id)
+    data = request.json
+    
+    # Validate required fields
+    if not data.get('name') or not data.get('label'):
+        return jsonify({'success': False, 'error': 'Name and label are required'})
+    
+    # Check if field name already exists
+    existing_field = FormField.query.filter_by(script_id=script_id, name=data.get('name')).first()
+    if existing_field:
+        return jsonify({'success': False, 'error': f'Field "{data.get("name")}" already exists'})
+    
+    try:
+        # Get the next display order
+        max_order = db.session.query(db.func.max(FormField.display_order)).filter_by(script_id=script_id).scalar() or 0
+        
+        field = FormField(
+            script_id=script_id,
+            name=data.get('name'),
+            label=data.get('label'),
+            field_type=data.get('field_type', 'text'),
+            required=data.get('required', False),
+            default_value=data.get('default_value', ''),
+            help_text=data.get('help_text', ''),
+            validation_rules=data.get('validation_rules', ''),
+            display_order=data.get('display_order', max_order + 1)
+        )
+        
+        db.session.add(field)
+        db.session.commit()
+        
+        return jsonify({'success': True, 'field_id': field.id})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/scripts/<int:script_id>/fields/<int:field_id>/update', methods=['POST'])
+@login_required
+def update_field_api(script_id, field_id):
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    
+    field = FormField.query.get_or_404(field_id)
+    
+    # Verify the field belongs to the script
+    if field.script_id != script_id:
+        return jsonify({'success': False, 'error': 'Invalid field ID'}), 400
+    
+    data = request.json
+    
+    # Validate required fields
+    if not data.get('name') or not data.get('label'):
+        return jsonify({'success': False, 'error': 'Name and label are required'})
+    
+    # Check if field name already exists (excluding current field)
+    existing_field = FormField.query.filter(
+        FormField.script_id == script_id,
+        FormField.name == data.get('name'),
+        FormField.id != field_id
+    ).first()
+    if existing_field:
+        return jsonify({'success': False, 'error': f'Field "{data.get("name")}" already exists'})
+    
+    try:
+        field.name = data.get('name')
+        field.label = data.get('label')
+        field.field_type = data.get('field_type', 'text')
+        field.required = data.get('required', False)
+        field.default_value = data.get('default_value', '')
+        field.help_text = data.get('help_text', '')
+        field.validation_rules = data.get('validation_rules', '')
+        field.display_order = data.get('display_order', field.display_order)
+        
+        db.session.commit()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/scripts/<int:script_id>/fields/reorder', methods=['POST'])
+@login_required
+def reorder_fields(script_id):
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied'}), 403
+    
+    script = Script.query.get_or_404(script_id)
+    data = request.json
+    
+    if not data or 'fields' not in data:
+        return jsonify({'success': False, 'error': 'No field order data provided'})
+    
+    try:
+        # Update display_order for each field
+        for field_data in data['fields']:
+            field_id = field_data.get('field_id')
+            display_order = field_data.get('display_order')
+            
+            if not field_id or display_order is None:
+                continue
+                
+            field = FormField.query.filter_by(id=field_id, script_id=script_id).first()
+            if field:
+                field.display_order = display_order
+        
+        db.session.commit()
+        return jsonify({'success': True})
+        
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)})
@@ -1106,30 +1242,6 @@ def test_tacacs():
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
-@app.route('/admin/dashboard')
-@login_required
-def admin_dashboard():
-    if not current_user.is_admin:
-        flash('You do not have permission to access this page.')
-        return redirect(url_for('index'))
-    
-    # Add user stats to the dashboard
-    user_count = User.query.count()
-    active_users = User.query.filter_by(is_active=True).count()
-    admin_users = User.query.filter_by(is_admin=True).count()
-    tacacs_users = User.query.filter_by(auth_type='tacacs').count()
-    
-    # Get existing stats
-    script_count = Script.query.count()
-    submission_count = FormSubmission.query.count()
-    
-    return render_template('admin/dashboard.html', 
-                          script_count=script_count,
-                          submission_count=submission_count,
-                          user_count=user_count,
-                          active_users=active_users,
-                          admin_users=admin_users,
-                          tacacs_users=tacacs_users)
 
 # Add these forms
 class LoginForm(FlaskForm):
