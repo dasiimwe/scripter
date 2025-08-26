@@ -1,0 +1,27 @@
+# Flask and core extensions
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Login==0.6.3
+Flask-WTF==1.2.1
+
+# Database
+SQLAlchemy==2.0.31
+
+# Forms and validation
+WTForms==3.1.2
+email-validator==2.2.0
+
+# Security
+Werkzeug==3.0.3
+
+# Template engine (usually comes with Flask but explicitly declaring)
+Jinja2==3.1.4
+
+# TACACS+ authentication
+tacacs-plus==2.6
+
+# Additional dependencies
+MarkupSafe==2.1.5
+itsdangerous==2.2.0
+click==8.1.7
+blinker==1.8.2

@@ -133,28 +133,63 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            const variableTagsContainer = document.getElementById('variable-tags');
-            variableTagsContainer.innerHTML = '';
+            const existingTagsContainer = document.getElementById('existing-variable-tags');
+            const newTagsContainer = document.getElementById('new-variable-tags');
+            const existingSection = document.getElementById('existing-variables-section');
+            const newSection = document.getElementById('new-variables-section');
+            
+            // Clear containers
+            existingTagsContainer.innerHTML = '';
+            newTagsContainer.innerHTML = '';
             
             if (data.variables && data.variables.length > 0) {
-                data.variables.forEach(variable => {
-                    const tag = document.createElement('span');
-                    tag.className = 'tag is-info is-medium variable-tag';
-                    tag.textContent = variable;
-                    tag.setAttribute('data-variable', variable);
-                    tag.addEventListener('click', function() {
-                        addVariableAsField(variable);
+                // Handle existing variables
+                if (data.existing_variables && data.existing_variables.length > 0) {
+                    data.existing_variables.forEach(variable => {
+                        const tag = document.createElement('span');
+                        tag.className = 'tag is-success is-medium';
+                        tag.textContent = variable;
+                        tag.title = 'Already exists as form field';
+                        existingTagsContainer.appendChild(tag);
                     });
-                    variableTagsContainer.appendChild(tag);
-                });
+                    existingSection.style.display = 'block';
+                } else {
+                    existingSection.style.display = 'none';
+                }
+                
+                // Handle new variables
+                if (data.new_variables && data.new_variables.length > 0) {
+                    data.new_variables.forEach(variable => {
+                        const tag = document.createElement('span');
+                        tag.className = 'tag is-info is-medium variable-tag';
+                        tag.textContent = variable;
+                        tag.setAttribute('data-variable', variable);
+                        tag.title = 'Click to add as form field';
+                        tag.addEventListener('click', function() {
+                            addVariableAsField(variable);
+                        });
+                        newTagsContainer.appendChild(tag);
+                    });
+                    newSection.style.display = 'block';
+                } else {
+                    // Show a message if no new variables
+                    const noNewVarsTag = document.createElement('span');
+                    noNewVarsTag.className = 'tag is-light is-medium';
+                    noNewVarsTag.textContent = 'All variables already have form fields';
+                    newTagsContainer.appendChild(noNewVarsTag);
+                    newSection.style.display = 'block';
+                }
                 
                 document.getElementById('detected-variables').classList.remove('is-hidden');
             } else {
+                // No variables detected at all
                 const noVarsTag = document.createElement('span');
                 noVarsTag.className = 'tag is-warning is-medium';
                 noVarsTag.textContent = 'No variables detected';
-                variableTagsContainer.appendChild(noVarsTag);
+                newTagsContainer.appendChild(noVarsTag);
                 
+                existingSection.style.display = 'none';
+                newSection.style.display = 'block';
                 document.getElementById('detected-variables').classList.remove('is-hidden');
             }
         })
@@ -163,18 +198,56 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Add all fields button
+    // Add all fields button (only for new variables)
     document.getElementById('add-all-fields').addEventListener('click', function() {
-        const variableTags = document.querySelectorAll('.variable-tag');
-        variableTags.forEach(tag => {
-            const variable = tag.getAttribute('data-variable');
-            addVariableAsField(variable);
+        const newVariableTags = document.querySelectorAll('#new-variable-tags .variable-tag');
+        if (newVariableTags.length === 0) {
+            alert('No new variables to add');
+            return;
+        }
+        
+        // Save the template first
+        const form = document.querySelector('form');
+        const formData = new FormData(form);
+        
+        // Update the template content with the current editor value
+        formData.set('content', editor.getValue());
+        
+        // Save template changes via form submission
+        fetch(form.action, {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => {
+            if (response.ok) {
+                // Reset the unsaved changes flag after successful save
+                hasUnsavedChanges = false;
+                originalContent = editor.getValue();
+                
+                // After template is saved, add all the new fields
+                let addPromises = [];
+                newVariableTags.forEach(tag => {
+                    const variable = tag.getAttribute('data-variable');
+                    addPromises.push(addVariableAsFieldWithoutReload(variable));
+                });
+                
+                // Wait for all fields to be added, then reload
+                Promise.all(addPromises).then(() => {
+                    location.reload();
+                });
+            } else {
+                alert('Failed to save template changes');
+            }
+        })
+        .catch(error => {
+            console.error('Error saving template:', error);
+            alert('Error saving template changes');
         });
     });
     
-    // Function to add a variable as a form field
-    function addVariableAsField(variable) {
-        fetch(`/api/scripts/${scriptId}/add_variable_field`, {
+    // Function to add a variable as a form field without reloading
+    function addVariableAsFieldWithoutReload(variable) {
+        return fetch(`/api/scripts/${scriptId}/add_variable_field`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -184,20 +257,83 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Change the tag color to indicate it's been added
-                const tags = document.querySelectorAll(`.variable-tag[data-variable="${variable}"]`);
-                tags.forEach(tag => {
-                    tag.classList.remove('is-info');
-                    tag.classList.add('is-success');
-                    tag.title = 'Added as form field';
-                });
+                // Remove the variable from the new variables section
+                const newVariableTag = document.querySelector(`#new-variable-tags .variable-tag[data-variable="${variable}"]`);
+                if (newVariableTag) {
+                    newVariableTag.remove();
+                }
+                
+                // Add to existing variables section
+                const existingTagsContainer = document.getElementById('existing-variable-tags');
+                const existingSection = document.getElementById('existing-variables-section');
+                
+                const tag = document.createElement('span');
+                tag.className = 'tag is-success is-medium';
+                tag.textContent = variable;
+                tag.title = 'Already exists as form field';
+                existingTagsContainer.appendChild(tag);
+                
+                // Show existing section if it was hidden
+                existingSection.style.display = 'block';
+                
+                // Check if no more new variables left
+                const remainingNewTags = document.querySelectorAll('#new-variable-tags .variable-tag');
+                if (remainingNewTags.length === 0) {
+                    const newTagsContainer = document.getElementById('new-variable-tags');
+                    newTagsContainer.innerHTML = '<span class="tag is-light is-medium">All variables already have form fields</span>';
+                }
+                
+                return true;
             } else {
-                alert(data.error || 'Failed to add field');
+                console.error('Failed to add field:', data.error);
+                return false;
             }
         })
         .catch(error => {
             console.error('Error adding field:', error);
-            alert('Error adding field: ' + error);
+            return false;
+        });
+    }
+    
+    // Function to add a variable as a form field (with reload for single additions)
+    function addVariableAsField(variable) {
+        // Save the template first when adding individual fields
+        const form = document.querySelector('form');
+        const formData = new FormData(form);
+        
+        // Update the template content with the current editor value
+        formData.set('content', editor.getValue());
+        
+        // Save template changes via form submission
+        fetch(form.action, {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => {
+            if (response.ok) {
+                // Reset the unsaved changes flag after successful save
+                hasUnsavedChanges = false;
+                originalContent = editor.getValue();
+                
+                // After template is saved, add the field
+                return addVariableAsFieldWithoutReload(variable);
+            } else {
+                throw new Error('Failed to save template changes');
+            }
+        })
+        .then(success => {
+            if (success) {
+                // Reload after a short delay to show the update
+                setTimeout(() => {
+                    location.reload();
+                }, 500);
+            } else {
+                alert('Failed to add field');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error: ' + error.message);
         });
     }
     

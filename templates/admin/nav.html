@@ -1,11 +1,5 @@
 <div class="tabs">
     <ul>
-        <li class="{{ 'is-active' if active_tab == 'dashboard' else '' }}">
-            <a href="{{ url_for('admin_dashboard') }}">
-                <span class="icon is-small"><i class="fas fa-tachometer-alt"></i></span>
-                <span>Dashboard</span>
-            </a>
-        </li>
         <li class="{{ 'is-active' if active_tab == 'scripts' else '' }}">
             <a href="{{ url_for('admin_scripts') }}">
                 <span class="icon is-small"><i class="fas fa-file-code"></i></span>
