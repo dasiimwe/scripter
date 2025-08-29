@@ -13,6 +13,7 @@ from wtforms import StringField, PasswordField, BooleanField, SelectField, TextA
 from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional
 import tacacs_plus
 from tacacs_plus.client import TACACSClient
+import difflib
 # from flask_wtf.csrf import CSRFProtect
 
 # Create instance directory if it doesn't exist
@@ -77,7 +78,7 @@ class Template(db.Model):
     script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
     content = db.Column(db.Text, nullable=False)
     version = db.Column(db.Integer, default=1)
-    output_format = db.Column(db.String(20), default='Plain Text')
+    output_format = db.Column(db.String(20), default='text')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -116,6 +117,21 @@ class AuthConfig(db.Model):
     tacacs_service = db.Column(db.String(50), default='scripter')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class ScriptChange(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    change_type = db.Column(db.String(50), nullable=False)  # 'script_edit', 'template_edit', 'field_add', 'field_edit', 'field_delete'
+    change_date = db.Column(db.DateTime, default=datetime.utcnow)
+    field_name = db.Column(db.String(100))  # Which field was changed
+    old_value = db.Column(db.Text)  # Previous value (for diffs)
+    new_value = db.Column(db.Text)  # New value (for diffs)
+    description = db.Column(db.Text)  # Optional description of the change
+    
+    # Relationships
+    script = db.relationship('Script', backref='changes')
+    user = db.relationship('User', backref='script_changes')
 
 # User loader for Flask-Login
 @login_manager.user_loader
@@ -240,27 +256,7 @@ def edit_script(script_id):
     script = Script.query.get_or_404(script_id)
     template = script.template
     
-    # Form fields are automatically available through the relationship
-    
-    if request.method == 'POST':
-        # Update script details
-        script.name = request.form.get('name')
-        script.status = request.form.get('status')
-        
-        # Update template
-        template_content = request.form.get('content')
-        output_format = request.form.get('output_format')
-        
-        if template_content is not None:
-            template.version += 1
-            template.content = template_content
-            template.output_format = output_format
-        
-        db.session.commit()
-        flash(f'Script "{script.name}" updated successfully')
-        return redirect(url_for('admin_scripts'))
-    
-    # Define Jinja2 snippets for the template editor
+    # Define Jinja2 snippets for the template editor (moved here so it's available for error returns)
     jinja_snippets = [
         {
             'name': 'If Condition',
@@ -271,18 +267,142 @@ def edit_script(script_id):
             'code': '{% if condition %}\n    content if true\n{% else %}\n    content if false\n{% endif %}'
         },
         {
-            'name': 'If-Elif-Else Condition',
-            'code': '{% if condition1 %}\n    content if condition1 is true\n{% elif condition2 %}\n    content if condition2 is true\n{% else %}\n    content if all conditions are false\n{% endif %}'
+            'name': 'For Loop',
+            'code': '{% for item in items %}\n    {{ item }}\n{% endfor %}'
         },
         {
             'name': 'Variable',
             'code': '{{ variable_name }}'
         },
         {
-            'name': 'For Loop',
-            'code': '{% for item in items %}\n    {{ item }}\n{% endfor %}'
+            'name': 'Variable with Default',
+            'code': '{{ variable_name | default("default value") }}'
+        },
+        {
+            'name': 'Variable with Filter',
+            'code': '{{ variable_name | upper }}'
+        },
+        {
+            'name': 'Set Variable',
+            'code': '{% set variable = value %}'
+        },
+        {
+            'name': 'Comment',
+            'code': '{# This is a comment #}'
         }
     ]
+    
+    # Form fields are automatically available through the relationship
+    
+    if request.method == 'POST':
+        # Track changes
+        old_name = script.name
+        old_status = script.status
+        old_template_content = template.content if template else ""
+        old_output_format = template.output_format if template else "text"
+        
+        # Update script details
+        new_name = request.form.get('name')
+        new_status = request.form.get('status')
+        
+        # Track script name/status changes
+        if old_name != new_name:
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='script_edit',
+                field_name='name',
+                old_value=old_name,
+                new_value=new_name,
+                description=f'Changed script name from "{old_name}" to "{new_name}"'
+            )
+            db.session.add(change)
+        
+        if old_status != new_status:
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='script_edit',
+                field_name='status',
+                old_value=old_status,
+                new_value=new_status,
+                description=f'Changed status from "{old_status}" to "{new_status}"'
+            )
+            db.session.add(change)
+        
+        script.name = new_name
+        script.status = new_status
+        
+        # Update template
+        template_content = request.form.get('content')
+        output_format = request.form.get('output_format')
+        
+        # Validate template syntax and variables before saving
+        if template_content:
+            from jinja2 import Environment, TemplateSyntaxError, meta
+            env = Environment()
+            
+            # Check for syntax errors
+            try:
+                parsed_template = env.parse(template_content)
+            except TemplateSyntaxError as e:
+                error_msg = f'Template syntax error at line {e.lineno}: {str(e)}'
+                return render_template('admin/edit_script.html', 
+                                     script=script, 
+                                     template=template,
+                                     jinja_snippets=jinja_snippets,
+                                     template_error=error_msg)
+            
+            # Get all variables used in the template
+            ast = env.parse(template_content)
+            template_variables = meta.find_undeclared_variables(ast)
+            
+            # Get all form field names for this script
+            form_field_names = {field.name for field in script.form_fields}
+            
+            # Check for undefined variables
+            undefined_vars = template_variables - form_field_names
+            if undefined_vars:
+                error_msg = f'Template contains undefined variables: {", ".join(sorted(undefined_vars))}. Please add corresponding form fields or remove these variables from the template.'
+                return render_template('admin/edit_script.html', 
+                                     script=script, 
+                                     template=template,
+                                     jinja_snippets=jinja_snippets,
+                                     template_error=error_msg)
+        
+        if template_content is not None and (old_template_content != template_content or old_output_format != output_format):
+            # Track template changes
+            if old_template_content != template_content:
+                change = ScriptChange(
+                    script_id=script_id,
+                    user_id=current_user.id,
+                    change_type='template_edit',
+                    field_name='content',
+                    old_value=old_template_content,
+                    new_value=template_content,
+                    description='Updated template content'
+                )
+                db.session.add(change)
+            
+            if old_output_format != output_format:
+                change = ScriptChange(
+                    script_id=script_id,
+                    user_id=current_user.id,
+                    change_type='template_edit',
+                    field_name='output_format',
+                    old_value=old_output_format,
+                    new_value=output_format,
+                    description=f'Changed output format from "{old_output_format}" to "{output_format}"'
+                )
+                db.session.add(change)
+            
+            template.version += 1
+            template.content = template_content
+            template.output_format = output_format
+        
+        db.session.commit()
+        flash(f'Script "{script.name}" updated successfully')
+        return redirect(url_for('admin_scripts'))
     
     return render_template('admin/edit_script.html', script=script, template=template, jinja_snippets=jinja_snippets)
 
@@ -500,7 +620,7 @@ def download_submission(script_id, submission_id):
         response = make_response(submission.output)
         response.headers['Content-Type'] = 'text/html'
         response.headers['Content-Disposition'] = f'attachment; filename=script_{script_id}_{submission_id}.html'
-    elif script.template.output_format == 'text':
+    elif script.template.output_format in ['text', 'Plain Text']:
         response = make_response(submission.output)
         response.headers['Content-Type'] = 'text/plain'
         response.headers['Content-Disposition'] = f'attachment; filename=script_{script_id}_{submission_id}.txt'
@@ -576,6 +696,47 @@ def detect_variables(script_id):
         app.logger.error(f"Error in detect_variables: {str(e)}", exc_info=True)
         return jsonify({'error': f'Error detecting variables: {str(e)}'}), 500
 
+@app.route('/api/scripts/<int:script_id>/validate_template', methods=['POST'])
+@login_required
+def validate_template(script_id):
+    """Validate Jinja2 template syntax"""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    if not request.is_json:
+        return jsonify({'error': 'Expected JSON data'}), 400
+    
+    try:
+        data = request.get_json()
+        template_content = data.get('template_content', '')
+        
+        # Try to compile the template to check for syntax errors
+        from jinja2 import Environment, TemplateSyntaxError
+        env = Environment()
+        
+        try:
+            # Attempt to compile the template
+            env.parse(template_content)
+            return jsonify({
+                'valid': True,
+                'message': 'Template syntax is valid'
+            })
+        except TemplateSyntaxError as e:
+            # Extract useful error information
+            error_message = str(e)
+            line_number = e.lineno if hasattr(e, 'lineno') else None
+            
+            return jsonify({
+                'valid': False,
+                'error': error_message,
+                'line': line_number,
+                'message': f'Syntax error at line {line_number}: {error_message}' if line_number else f'Syntax error: {error_message}'
+            })
+            
+    except Exception as e:
+        app.logger.error(f"Error in validate_template: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Error validating template: {str(e)}'}), 500
+
 @app.route('/api/scripts/<int:script_id>/add_variable_field', methods=['POST'])
 @login_required
 def add_variable_field(script_id):
@@ -628,6 +789,18 @@ def delete_field(script_id, field_id):
         return jsonify({'success': False, 'error': 'Invalid field ID'}), 400
     
     try:
+        # Track field deletion
+        change = ScriptChange(
+            script_id=script_id,
+            user_id=current_user.id,
+            change_type='field_delete',
+            field_name=field.name,
+            old_value=f'{field.label} ({field.field_type})',
+            new_value='',
+            description=f'Deleted field "{field.name}"'
+        )
+        db.session.add(change)
+        
         db.session.delete(field)
         db.session.commit()
         return jsonify({'success': True})
@@ -698,6 +871,19 @@ def create_field_api(script_id):
         )
         
         db.session.add(field)
+        
+        # Track field creation
+        change = ScriptChange(
+            script_id=script_id,
+            user_id=current_user.id,
+            change_type='field_add',
+            field_name=field.name,
+            old_value='',
+            new_value=f'{field.label} ({field.field_type})',
+            description=f'Added new field "{field.name}"'
+        )
+        db.session.add(change)
+        
         db.session.commit()
         
         return jsonify({'success': True, 'field_id': field.id})
@@ -733,6 +919,49 @@ def update_field_api(script_id, field_id):
         return jsonify({'success': False, 'error': f'Field "{data.get("name")}" already exists'})
     
     try:
+        # Track changes for each field
+        changes_made = []
+        
+        if field.name != data.get('name'):
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='field_edit',
+                field_name=field.name,
+                old_value=field.name,
+                new_value=data.get('name'),
+                description=f'Changed field name from "{field.name}" to "{data.get("name")}"'
+            )
+            db.session.add(change)
+            changes_made.append('name')
+        
+        if field.label != data.get('label'):
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='field_edit',
+                field_name=field.name,
+                old_value=field.label,
+                new_value=data.get('label'),
+                description=f'Changed field label for "{field.name}"'
+            )
+            db.session.add(change)
+            changes_made.append('label')
+        
+        if field.field_type != data.get('field_type', 'text'):
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='field_edit',
+                field_name=field.name,
+                old_value=field.field_type,
+                new_value=data.get('field_type', 'text'),
+                description=f'Changed field type for "{field.name}"'
+            )
+            db.session.add(change)
+            changes_made.append('field_type')
+        
+        # Update field values
         field.name = data.get('name')
         field.label = data.get('label')
         field.field_type = data.get('field_type', 'text')
@@ -1318,6 +1547,107 @@ def delete_script(script_id):
         flash(f'Error deleting script: {str(e)}', 'error')
     
     return redirect(url_for('admin_scripts'))
+
+@app.route('/admin/scripts/<int:script_id>/history')
+@login_required
+def script_history(script_id):
+    if not current_user.is_admin:
+        flash('Access denied: Admin privileges required')
+        return redirect(url_for('index'))
+    
+    script = Script.query.get_or_404(script_id)
+    
+    # Get pagination parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    
+    # Get search parameters
+    search_query = request.args.get('search', '').strip()
+    change_type_filter = request.args.get('type', '')
+    
+    # Build the query
+    query = ScriptChange.query.filter_by(script_id=script_id)
+    
+    # Apply search filter if provided
+    if search_query:
+        search_pattern = f'%{search_query}%'
+        query = query.filter(
+            db.or_(
+                ScriptChange.description.ilike(search_pattern),
+                ScriptChange.field_name.ilike(search_pattern),
+                ScriptChange.old_value.ilike(search_pattern),
+                ScriptChange.new_value.ilike(search_pattern)
+            )
+        )
+    
+    # Apply type filter if provided
+    if change_type_filter:
+        query = query.filter_by(change_type=change_type_filter)
+    
+    # Order by date (newest first) and paginate
+    pagination = query.order_by(ScriptChange.change_date.desc()).paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False
+    )
+    
+    changes = pagination.items
+    
+    # Process changes to generate diffs for template changes
+    for change in changes:
+        if change.change_type == 'template_edit' and change.field_name == 'content':
+            # Generate a line-by-line diff
+            change.diff = generate_diff(change.old_value or '', change.new_value or '')
+    
+    # Get unique change types for filter dropdown
+    all_change_types = db.session.query(ScriptChange.change_type).filter_by(script_id=script_id).distinct().all()
+    change_types = [ct[0] for ct in all_change_types]
+    
+    return render_template('admin/script_history.html', 
+                         script=script,
+                         changes=changes,
+                         pagination=pagination,
+                         search_query=search_query,
+                         change_type_filter=change_type_filter,
+                         change_types=change_types,
+                         per_page=per_page)
+
+def generate_diff(old_text, new_text):
+    """Generate a unified diff with line numbers and +/- signs"""
+    old_lines = old_text.splitlines(keepends=True)
+    new_lines = new_text.splitlines(keepends=True)
+    
+    # Generate unified diff
+    diff = difflib.unified_diff(
+        old_lines,
+        new_lines,
+        fromfile='Previous Version',
+        tofile='Current Version',
+        lineterm=''
+    )
+    
+    diff_lines = []
+    for line in diff:
+        if line.startswith('+++') or line.startswith('---'):
+            # Skip file headers
+            continue
+        elif line.startswith('@@'):
+            # Format hunk header
+            diff_lines.append({'type': 'header', 'content': line})
+        elif line.startswith('+'):
+            # Added line
+            diff_lines.append({'type': 'add', 'content': line[1:]})
+        elif line.startswith('-'):
+            # Removed line
+            diff_lines.append({'type': 'delete', 'content': line[1:]})
+        elif line.startswith(' '):
+            # Context line (unchanged)
+            diff_lines.append({'type': 'context', 'content': line[1:]})
+        else:
+            # Other lines (shouldn't happen in unified diff, but just in case)
+            diff_lines.append({'type': 'context', 'content': line})
+    
+    return diff_lines
 
 if __name__ == '__main__':
     app.run(debug=True)

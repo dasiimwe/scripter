@@ -5,7 +5,8 @@ document.addEventListener('DOMContentLoaded', function() {
         theme: 'monokai',
         lineNumbers: true,
         lineWrapping: true,
-        indentUnit: 4
+        indentUnit: 4,
+        gutters: ["CodeMirror-linenumbers", "error-gutter"]
     });
     
     // Track if content has changed
@@ -30,9 +31,117 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Reset unsaved changes flag when form is submitted
-    document.querySelector('form').addEventListener('submit', function() {
-        hasUnsavedChanges = false;
+    // Validate and intercept form submission
+    let lastValidationResult = null;
+    
+    document.querySelector('form').addEventListener('submit', function(e) {
+        const templateContent = editor.getValue();
+        const scriptId = document.getElementById('script-id').value;
+        
+        // Prevent default submission to validate first
+        e.preventDefault();
+        
+        // Show loading indicator
+        const submitButton = this.querySelector('button[type="submit"]');
+        const originalText = submitButton.innerHTML;
+        submitButton.innerHTML = '<span class="icon"><i class="fas fa-spinner fa-spin"></i></span><span>Validating...</span>';
+        submitButton.disabled = true;
+        
+        // Validate template
+        fetch(`/api/scripts/${scriptId}/validate_template`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ template_content: templateContent })
+        })
+        .then(response => response.json())
+        .then(validationData => {
+            if (!validationData.valid) {
+                // Show syntax error
+                submitButton.innerHTML = originalText;
+                submitButton.disabled = false;
+                
+                const validationMessage = document.getElementById('validation-message');
+                if (validationMessage) {
+                    validationMessage.innerHTML = `<div class="notification is-danger"><button class="delete"></button><strong>Cannot save - Syntax Error:</strong> ${validationData.message}<br>Please fix the syntax error before saving.</div>`;
+                    
+                    // Add delete button functionality
+                    const deleteButton = validationMessage.querySelector('.delete');
+                    if (deleteButton) {
+                        deleteButton.addEventListener('click', function() {
+                            validationMessage.innerHTML = '';
+                        });
+                    }
+                }
+                
+                // Highlight error line if provided
+                if (validationData.line) {
+                    const errorLine = validationData.line - 1;
+                    editor.scrollIntoView({line: errorLine, ch: 0});
+                    editor.addLineClass(errorLine, "background", "line-error");
+                    
+                    // Add error marker to gutter
+                    const marker = document.createElement("div");
+                    marker.style.color = "#ff0000";
+                    marker.innerHTML = "●";
+                    marker.title = validationData.error;
+                    editor.setGutterMarker(errorLine, "error-gutter", marker);
+                }
+                
+                return Promise.reject('Syntax error');
+            }
+            
+            // Now check for undefined variables
+            return fetch(`/api/scripts/${scriptId}/detect_variables`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ template_content: templateContent })
+            });
+        })
+        .then(response => response.json())
+        .then(variableData => {
+            // Check if there are undefined variables (new variables that don't have form fields)
+            if (variableData.new_variables && variableData.new_variables.length > 0) {
+                submitButton.innerHTML = originalText;
+                submitButton.disabled = false;
+                
+                const validationMessage = document.getElementById('validation-message');
+                if (validationMessage) {
+                    validationMessage.innerHTML = `<div class="notification is-warning"><button class="delete"></button><strong>Cannot save - Undefined Variables:</strong> The template contains variables that don't have corresponding form fields: <strong>${variableData.new_variables.join(', ')}</strong><br>Please add form fields for these variables or remove them from the template.</div>`;
+                    
+                    // Add delete button functionality
+                    const deleteButton = validationMessage.querySelector('.delete');
+                    if (deleteButton) {
+                        deleteButton.addEventListener('click', function() {
+                            validationMessage.innerHTML = '';
+                        });
+                    }
+                }
+                
+                return Promise.reject('Undefined variables');
+            }
+            
+            // All validations passed, submit the form
+            hasUnsavedChanges = false;
+            submitButton.innerHTML = originalText;
+            this.submit();
+        })
+        .catch(error => {
+            if (error !== 'Syntax error' && error !== 'Undefined variables') {
+                console.error('Validation error:', error);
+                submitButton.innerHTML = originalText;
+                submitButton.disabled = false;
+                
+                // If validation fails for other reasons, show warning but allow submission
+                if (confirm('Could not validate the template. Do you want to save anyway?')) {
+                    hasUnsavedChanges = false;
+                    this.submit();
+                }
+            }
+        });
     });
     
     // Tab switching
@@ -117,6 +226,101 @@ document.addEventListener('DOMContentLoaded', function() {
                 );
             }
         });
+    });
+    
+    // Validate template button functionality
+    function validateTemplate() {
+        const scriptId = document.getElementById('script-id').value;
+        const templateContent = editor.getValue();
+        
+        // Clear any previous error markers
+        editor.clearGutter("error-gutter");
+        
+        fetch(`/api/scripts/${scriptId}/validate_template`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ template_content: templateContent })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const validationMessage = document.getElementById('validation-message');
+            
+            if (data.valid) {
+                // Show success message
+                if (validationMessage) {
+                    validationMessage.innerHTML = '<div class="notification is-success is-light"><button class="delete"></button>Template syntax is valid!</div>';
+                    // Auto-hide after 3 seconds
+                    setTimeout(() => {
+                        if (validationMessage) {
+                            validationMessage.innerHTML = '';
+                        }
+                    }, 3000);
+                }
+            } else {
+                // Show error message
+                if (validationMessage) {
+                    validationMessage.innerHTML = `<div class="notification is-danger is-light"><button class="delete"></button><strong>Syntax Error:</strong> ${data.message}</div>`;
+                }
+                
+                // Highlight the error line in CodeMirror if line number is provided
+                if (data.line) {
+                    // Line numbers in Jinja2 are 1-based, CodeMirror is 0-based
+                    const errorLine = data.line - 1;
+                    
+                    // Add error marker to gutter
+                    const marker = document.createElement("div");
+                    marker.style.color = "#ff0000";
+                    marker.innerHTML = "●";
+                    marker.title = data.error;
+                    editor.setGutterMarker(errorLine, "error-gutter", marker);
+                    
+                    // Scroll to and highlight the error line
+                    editor.scrollIntoView({line: errorLine, ch: 0});
+                    editor.addLineClass(errorLine, "background", "line-error");
+                    
+                    // Remove highlight after 5 seconds
+                    setTimeout(() => {
+                        editor.removeLineClass(errorLine, "background", "line-error");
+                    }, 5000);
+                }
+            }
+            
+            // Add delete button functionality for notifications
+            const deleteButton = validationMessage?.querySelector('.delete');
+            if (deleteButton) {
+                deleteButton.addEventListener('click', function() {
+                    validationMessage.innerHTML = '';
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error validating template:', error);
+            const validationMessage = document.getElementById('validation-message');
+            if (validationMessage) {
+                validationMessage.innerHTML = '<div class="notification is-warning is-light"><button class="delete"></button>Failed to validate template</div>';
+            }
+        });
+    }
+    
+    // Auto-validate on editor change (with debounce)
+    let validateTimeout;
+    editor.on('change', function() {
+        // Clear any previous timeout
+        clearTimeout(validateTimeout);
+        
+        // Clear previous error markers when content changes
+        editor.clearGutter("error-gutter");
+        const totalLines = editor.lineCount();
+        for (let i = 0; i < totalLines; i++) {
+            editor.removeLineClass(i, "background", "line-error");
+        }
+        
+        // Set a new timeout to validate after user stops typing (1 second delay)
+        validateTimeout = setTimeout(() => {
+            validateTemplate();
+        }, 1000);
     });
     
     // Detect variables button

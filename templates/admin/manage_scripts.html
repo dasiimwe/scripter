@@ -33,13 +33,22 @@
         color: #dbdbdb;
     }
     .admin-actions {
-        min-width: 220px;
+        min-width: 320px;
     }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container">
+    <!-- Breadcrumbs -->
+    <nav class="breadcrumb" aria-label="breadcrumbs">
+        <ul>
+            <li><a href="{{ url_for('index') }}">Home</a></li>
+            <li><a href="{{ url_for('admin_main') }}">Admin</a></li>
+            <li class="is-active"><a href="#" aria-current="page">Manage Scripts</a></li>
+        </ul>
+    </nav>
+    
     <h1 class="title">Manage Scripts</h1>
     
     <div class="level">
@@ -121,6 +130,12 @@
                                     <i class="fas fa-edit"></i>
                                 </span>
                                 <span>Edit</span>
+                            </a>
+                            <a href="{{ url_for('script_history', script_id=script.id) }}" class="button is-warning is-outlined" title="View Change History">
+                                <span class="icon is-small">
+                                    <i class="fas fa-history"></i>
+                                </span>
+                                <span>History</span>
                             </a>
                             <a href="{{ url_for('script_preview', script_id=script.id) }}" class="button is-success is-outlined">
                                 <span class="icon is-small">
