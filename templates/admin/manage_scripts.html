@@ -33,7 +33,27 @@
         color: #dbdbdb;
     }
     .admin-actions {
-        min-width: 320px;
+        min-width: 180px;
+    }
+    .action-buttons {
+        display: flex;
+        gap: 0.25rem;
+    }
+    .action-buttons .button {
+        padding: 0.5rem;
+        border-color: #8b8680;
+        color: #6b645f;
+        background-color: transparent;
+    }
+    .action-buttons .button:hover {
+        border-color: #6b645f;
+        color: #4a453f;
+        background-color: #f5f4f3;
+    }
+    .action-buttons .button.delete-script:hover {
+        border-color: #dc3545;
+        color: #dc3545;
+        background-color: #fff5f5;
     }
 </style>
 {% endblock %}
@@ -121,30 +141,26 @@
                     </td>
                     <td>{{ script.created_at.strftime('%Y-%m-%d') }}</td>
                     <td class="admin-actions">
-                        <div class="buttons are-small">
-                            <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-info is-outlined">
-                                <span class="icon is-small">
+                        <div class="action-buttons">
+                            <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-small" title="Edit Script">
+                                <span class="icon">
                                     <i class="fas fa-edit"></i>
                                 </span>
-                                <span>Edit</span>
                             </a>
-                            <a href="{{ url_for('script_history', script_id=script.id) }}" class="button is-warning is-outlined" title="View Change History">
-                                <span class="icon is-small">
+                            <a href="{{ url_for('script_history', script_id=script.id) }}" class="button is-small" title="View Change History">
+                                <span class="icon">
                                     <i class="fas fa-history"></i>
                                 </span>
-                                <span>History</span>
                             </a>
-                            <a href="{{ url_for('script_preview', script_id=script.id) }}" class="button is-success is-outlined">
-                                <span class="icon is-small">
+                            <a href="{{ url_for('script_preview', script_id=script.id) }}" class="button is-small" title="Preview Script">
+                                <span class="icon">
                                     <i class="fas fa-eye"></i>
                                 </span>
-                                <span>Preview</span>
                             </a>
-                            <button class="button is-danger is-outlined delete-script" data-script-id="{{ script.id }}" data-script-name="{{ script.name }}">
-                                <span class="icon is-small">
+                            <button class="button is-small delete-script" data-script-id="{{ script.id }}" data-script-name="{{ script.name }}" title="Delete Script">
+                                <span class="icon">
                                     <i class="fas fa-trash"></i>
                                 </span>
-                                <span>Delete</span>
                             </button>
                         </div>
                     </td>
@@ -235,7 +251,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Variables for pagination
-    const scriptRows = document.querySelectorAll('.script-row');
+    let scriptRows = document.querySelectorAll('.script-row');
     const itemsPerPageSelect = document.getElementById('items-per-page');
     const paginationNumbers = document.getElementById('pagination-numbers');
     const showingInfo = document.getElementById('showing-info');
@@ -314,10 +330,26 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             
             // Sort the rows
-            const sortedRows = Array.from(scriptRows).sort((a, b) => {
-                const aValue = a.getAttribute(`data-${column}`);
-                const bValue = b.getAttribute(`data-${column}`);
+            const tbody = document.querySelector('tbody');
+            const rowsArray = Array.from(tbody.querySelectorAll('.script-row'));
+            
+            rowsArray.sort((a, b) => {
+                let aValue = a.getAttribute(`data-${column}`);
+                let bValue = b.getAttribute(`data-${column}`);
                 
+                // Handle date sorting
+                if (column === 'created') {
+                    aValue = new Date(aValue).getTime();
+                    bValue = new Date(bValue).getTime();
+                    
+                    if (currentSort.direction === 'asc') {
+                        return aValue - bValue;
+                    } else {
+                        return bValue - aValue;
+                    }
+                }
+                
+                // Handle text sorting
                 if (currentSort.direction === 'asc') {
                     return aValue.localeCompare(bValue);
                 } else {
@@ -325,9 +357,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             });
             
-            // Reorder the rows in the DOM
-            const tbody = document.querySelector('tbody');
-            sortedRows.forEach(row => tbody.appendChild(row));
+            // Clear tbody and re-append sorted rows
+            tbody.innerHTML = '';
+            rowsArray.forEach(row => tbody.appendChild(row));
             
             // Reset to first page
             currentPage = 1;
@@ -337,6 +369,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Pagination functionality
     function updatePagination() {
+        // Update scriptRows to get current DOM order
+        scriptRows = document.querySelectorAll('.script-row');
+        
         // Clear pagination numbers
         paginationNumbers.innerHTML = '';
         

@@ -410,12 +410,27 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Save the template first
+        // Save the script and template first
         const form = document.querySelector('form');
-        const formData = new FormData(form);
+        const formData = new FormData();
+        
+        // Explicitly capture all form fields to ensure they're saved
+        const nameInput = document.querySelector('input[name="name"]');
+        const statusSelect = document.querySelector('select[name="status"]');
+        const outputFormatSelect = document.querySelector('select[name="output_format"]');
+        
+        if (nameInput) {
+            formData.append('name', nameInput.value);
+        }
+        if (statusSelect) {
+            formData.append('status', statusSelect.value);
+        }
+        if (outputFormatSelect) {
+            formData.append('output_format', outputFormatSelect.value);
+        }
         
         // Update the template content with the current editor value
-        formData.set('content', editor.getValue());
+        formData.append('content', editor.getValue());
         
         // Save template changes via form submission
         fetch(form.action, {
@@ -501,12 +516,27 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Function to add a variable as a form field (with reload for single additions)
     function addVariableAsField(variable) {
-        // Save the template first when adding individual fields
+        // Save the script and template first when adding individual fields
         const form = document.querySelector('form');
-        const formData = new FormData(form);
+        const formData = new FormData();
+        
+        // Explicitly capture all form fields to ensure they're saved
+        const nameInput = document.querySelector('input[name="name"]');
+        const statusSelect = document.querySelector('select[name="status"]');
+        const outputFormatSelect = document.querySelector('select[name="output_format"]');
+        
+        if (nameInput) {
+            formData.append('name', nameInput.value);
+        }
+        if (statusSelect) {
+            formData.append('status', statusSelect.value);
+        }
+        if (outputFormatSelect) {
+            formData.append('output_format', outputFormatSelect.value);
+        }
         
         // Update the template content with the current editor value
-        formData.set('content', editor.getValue());
+        formData.append('content', editor.getValue());
         
         // Save template changes via form submission
         fetch(form.action, {

@@ -32,6 +32,15 @@ app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['WTF_CSRF_ENABLED'] = False  # Disable CSRF for the entire application
 
+# Add JSON filter for templates
+import json
+@app.template_filter('from_json')
+def from_json_filter(value):
+    try:
+        return json.loads(value) if value else {}
+    except (ValueError, TypeError):
+        return {}
+
 # Initialize extensions
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -132,6 +141,22 @@ class ScriptChange(db.Model):
     # Relationships
     script = db.relationship('Script', backref='changes')
     user = db.relationship('User', backref='script_changes')
+
+class GeneratedScript(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    original_script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    generated_content = db.Column(db.Text, nullable=False)
+    csv_row_data = db.Column(db.Text)  # Store the original CSV row data as JSON
+    batch_id = db.Column(db.String(50))  # Group scripts generated from same CSV upload
+    status = db.Column(db.String(20), default='active')  # active, archived, deleted
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    original_script = db.relationship('Script', backref='generated_scripts')
+    user = db.relationship('User', backref='generated_scripts')
 
 # User loader for Flask-Login
 @login_manager.user_loader
@@ -543,6 +568,19 @@ def view_script(script_id):
             output=output
         )
         db.session.add(submission)
+        
+        # Also create a GeneratedScript record for easy access
+        generated_script = GeneratedScript(
+            name=f"{script.name} - {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
+            original_script_id=script_id,
+            generated_content=output,
+            user_id=current_user.id,
+            csv_row_data=json.dumps(form_data),  # Store form data for reference
+            created_at=datetime.utcnow(),
+            modified_at=datetime.utcnow()
+        )
+        db.session.add(generated_script)
+        
         db.session.commit()
         submission_id = submission.id
     
@@ -591,6 +629,258 @@ def submit_form(script_id):
     session['submission_id'] = submission.id
     
     return redirect(url_for('preview_output', script_id=script_id))
+
+@app.route('/scripts/<int:script_id>/csv-template')
+@login_required
+def download_csv_template(script_id):
+    """Generate and download CSV template for script form fields"""
+    script = Script.query.filter_by(id=script_id, status='active').first_or_404()
+    form_fields = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order).all()
+    
+    if not form_fields:
+        flash('No form fields defined for this script', 'warning')
+        return redirect(url_for('view_script', script_id=script_id))
+    
+    import csv
+    from io import StringIO
+    
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    # Write header row with field names
+    headers = [field.name for field in form_fields]
+    writer.writerow(headers)
+    
+    # Write example row with field labels as guidance
+    example_row = [f"{field.label} ({field.field_type})" for field in form_fields]
+    writer.writerow(example_row)
+    
+    # Create response
+    csv_content = output.getvalue()
+    output.close()
+    
+    from flask import Response
+    response = Response(csv_content, mimetype='text/csv')
+    response.headers['Content-Disposition'] = f'attachment; filename="{script.name}_template.csv"'
+    
+    return response
+
+@app.route('/scripts/<int:script_id>/bulk-generate', methods=['GET', 'POST'])
+@login_required
+def bulk_generate_scripts(script_id):
+    """Upload CSV and generate multiple scripts"""
+    script = Script.query.filter_by(id=script_id, status='active').first_or_404()
+    form_fields = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order).all()
+    
+    if not form_fields:
+        flash('No form fields defined for this script', 'warning')
+        return redirect(url_for('view_script', script_id=script_id))
+    
+    if request.method == 'GET':
+        # Show upload form
+        return render_template('bulk_generate.html', script=script, form_fields=form_fields)
+    
+    # Handle POST - process uploaded CSV
+    if 'csv_file' not in request.files:
+        flash('No file uploaded', 'error')
+        return redirect(request.url)
+    
+    file = request.files['csv_file']
+    if file.filename == '':
+        flash('No file selected', 'error')
+        return redirect(request.url)
+    
+    if not file.filename.lower().endswith('.csv'):
+        flash('Please upload a CSV file', 'error')
+        return redirect(request.url)
+    
+    try:
+        import csv
+        import uuid
+        import json
+        from jinja2 import Environment, TemplateSyntaxError
+        
+        # Generate batch ID for this upload
+        batch_id = str(uuid.uuid4())[:8]
+        
+        # Read and parse CSV
+        csv_content = file.read().decode('utf-8')
+        csv_reader = csv.DictReader(csv_content.splitlines())
+        
+        # Get expected field names
+        expected_fields = [field.name for field in form_fields]
+        
+        # Validate CSV headers
+        csv_headers = csv_reader.fieldnames
+        if not csv_headers:
+            flash('CSV file appears to be empty', 'error')
+            return redirect(request.url)
+        
+        missing_fields = set(expected_fields) - set(csv_headers)
+        if missing_fields:
+            flash(f'CSV is missing required columns: {", ".join(missing_fields)}', 'error')
+            return redirect(request.url)
+        
+        # Process each row
+        generated_count = 0
+        error_count = 0
+        env = Environment()
+        
+        for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 because header is row 1
+            try:
+                # Skip empty rows
+                if not any(row.values()):
+                    continue
+                
+                # Prepare form data
+                form_data = {}
+                for field in form_fields:
+                    value = row.get(field.name, '').strip()
+                    form_data[field.name] = value
+                
+                # Generate script content using template
+                jinja_template = env.from_string(script.template.content)
+                generated_content = jinja_template.render(**form_data)
+                
+                # Create name for generated script (use first few fields or row number)
+                name_parts = []
+                for field in form_fields[:3]:  # Use first 3 fields for name
+                    value = form_data.get(field.name, '').strip()
+                    if value:
+                        name_parts.append(value[:20])  # Limit length
+                
+                if name_parts:
+                    generated_name = f"{script.name} - {' '.join(name_parts)}"
+                else:
+                    generated_name = f"{script.name} - Row {row_num}"
+                
+                # Save generated script
+                generated_script = GeneratedScript(
+                    original_script_id=script_id,
+                    user_id=current_user.id,
+                    name=generated_name[:200],  # Limit to DB field size
+                    generated_content=generated_content,
+                    csv_row_data=json.dumps(form_data),
+                    batch_id=batch_id
+                )
+                db.session.add(generated_script)
+                generated_count += 1
+                
+            except Exception as e:
+                app.logger.error(f"Error processing CSV row {row_num}: {str(e)}")
+                error_count += 1
+                continue
+        
+        if generated_count > 0:
+            db.session.commit()
+            flash(f'Successfully generated {generated_count} scripts', 'success')
+            if error_count > 0:
+                flash(f'{error_count} rows had errors and were skipped', 'warning')
+        else:
+            flash('No scripts were generated. Please check your CSV file.', 'error')
+        
+        return redirect(url_for('list_generated_scripts'))
+        
+    except Exception as e:
+        app.logger.error(f"Error processing CSV upload: {str(e)}")
+        flash(f'Error processing CSV file: {str(e)}', 'error')
+        return redirect(request.url)
+
+@app.route('/generated-scripts')
+@login_required
+def list_generated_scripts():
+    """List all generated scripts for the current user"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    
+    # Build query
+    query = GeneratedScript.query.filter_by(user_id=current_user.id)
+    
+    # Add search functionality
+    search_query = request.args.get('search', '').strip()
+    if search_query:
+        search_pattern = f'%{search_query}%'
+        query = query.filter(GeneratedScript.name.ilike(search_pattern))
+    
+    # Order by creation date (newest first) and paginate
+    pagination = query.order_by(GeneratedScript.created_at.desc()).paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False
+    )
+    
+    generated_scripts = pagination.items
+    
+    return render_template('generated_scripts.html', 
+                         generated_scripts=generated_scripts,
+                         pagination=pagination,
+                         search_query=search_query,
+                         per_page=per_page)
+
+@app.route('/generated-scripts/<int:generated_id>/view')
+@login_required
+def view_generated_script(generated_id):
+    """View a generated script"""
+    generated_script = GeneratedScript.query.filter_by(
+        id=generated_id, 
+        user_id=current_user.id
+    ).first_or_404()
+    
+    return render_template('view_generated_script.html', 
+                         generated_script=generated_script)
+
+@app.route('/generated-scripts/<int:generated_id>/download')
+@login_required
+def download_generated_script(generated_id):
+    """Download a generated script"""
+    generated_script = GeneratedScript.query.filter_by(
+        id=generated_id, 
+        user_id=current_user.id
+    ).first_or_404()
+    
+    from flask import Response
+    response = Response(generated_script.generated_content, mimetype='text/plain')
+    safe_filename = generated_script.name.replace(' ', '_').replace('/', '-')
+    response.headers['Content-Disposition'] = f'attachment; filename="{safe_filename}.txt"'
+    
+    return response
+
+@app.route('/generated-scripts/<int:generated_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_generated_script(generated_id):
+    """Edit a generated script"""
+    generated_script = GeneratedScript.query.filter_by(
+        id=generated_id, 
+        user_id=current_user.id
+    ).first_or_404()
+    
+    if request.method == 'POST':
+        generated_script.name = request.form.get('name', '').strip()
+        generated_script.generated_content = request.form.get('content', '')
+        generated_script.modified_at = datetime.utcnow()
+        
+        db.session.commit()
+        flash('Generated script updated successfully', 'success')
+        return redirect(url_for('view_generated_script', generated_id=generated_id))
+    
+    return render_template('edit_generated_script.html', 
+                         generated_script=generated_script)
+
+@app.route('/generated-scripts/<int:generated_id>/delete', methods=['POST'])
+@login_required
+def delete_generated_script(generated_id):
+    """Delete a generated script"""
+    generated_script = GeneratedScript.query.filter_by(
+        id=generated_id, 
+        user_id=current_user.id
+    ).first_or_404()
+    
+    name = generated_script.name
+    db.session.delete(generated_script)
+    db.session.commit()
+    
+    flash(f'Generated script "{name}" deleted successfully', 'success')
+    return redirect(url_for('list_generated_scripts'))
 
 @app.route('/scripts/<int:script_id>/preview', methods=['GET'])
 def preview_output(script_id):

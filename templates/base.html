@@ -32,6 +32,12 @@
                     Home
                 </a>
                 
+                {% if current_user.is_authenticated %}
+                <a class="navbar-item" href="{{ url_for('list_generated_scripts') }}">
+                    Generated Scripts
+                </a>
+                {% endif %}
+                
                 {% if current_user.is_authenticated and current_user.is_admin %}
                 <a class="navbar-item" href="{{ url_for('admin_scripts') }}">
                     Manage Scripts
