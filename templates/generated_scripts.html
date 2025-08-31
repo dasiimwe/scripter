@@ -2,6 +2,18 @@
 
 {% block title %}Generated Scripts{% endblock %}
 
+{% block head_extra %}
+<style>
+    .sort-icon {
+        margin-left: 0.25rem;
+        cursor: pointer;
+    }
+    .sort-icon:hover {
+        color: #3273dc;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <!-- Breadcrumbs -->
 <nav class="breadcrumb" aria-label="breadcrumbs">
@@ -90,17 +102,47 @@
                 <table class="table is-fullwidth is-hoverable">
                     <thead>
                         <tr>
-                            <th>Name</th>
-                            <th>Original Script</th>
-                            <th>Batch ID</th>
-                            <th>Created</th>
-                            <th>Modified</th>
+                            <th>
+                                Name
+                                <span class="icon sort-icon" data-sort="name">
+                                    <i class="fas fa-sort"></i>
+                                </span>
+                            </th>
+                            <th>
+                                Original Script
+                                <span class="icon sort-icon" data-sort="original">
+                                    <i class="fas fa-sort"></i>
+                                </span>
+                            </th>
+                            <th>
+                                Batch ID
+                                <span class="icon sort-icon" data-sort="batch">
+                                    <i class="fas fa-sort"></i>
+                                </span>
+                            </th>
+                            <th>
+                                Created
+                                <span class="icon sort-icon" data-sort="created">
+                                    <i class="fas fa-sort"></i>
+                                </span>
+                            </th>
+                            <th>
+                                Modified
+                                <span class="icon sort-icon" data-sort="modified">
+                                    <i class="fas fa-sort"></i>
+                                </span>
+                            </th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for generated in generated_scripts %}
-                        <tr>
+                        <tr class="generated-row" 
+                            data-name="{{ generated.name|lower }}" 
+                            data-original="{{ generated.original_script.name|lower }}"
+                            data-batch="{{ generated.batch_id|lower if generated.batch_id else '' }}"
+                            data-created="{{ generated.created_at.strftime('%Y-%m-%d %H:%M') }}"
+                            data-modified="{{ generated.modified_at.strftime('%Y-%m-%d %H:%M') }}">
                             <td>
                                 <strong>{{ generated.name }}</strong>
                             </td>
@@ -227,4 +269,102 @@
         </div>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Wait a bit to ensure table is fully loaded
+    setTimeout(function() {
+        const sortIcons = document.querySelectorAll('.sort-icon');
+        const tbody = document.querySelector('tbody');
+        let currentSort = { column: null, direction: 'asc' };
+        
+        console.log('Sort icons found:', sortIcons.length);
+        console.log('Tbody found:', tbody ? 'yes' : 'no');
+        
+        if (tbody && sortIcons.length > 0) {
+            sortIcons.forEach(icon => {
+                icon.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    console.log('Sort clicked:', this.getAttribute('data-sort'));
+                    
+                    const column = this.getAttribute('data-sort');
+                    
+                    // Toggle direction if clicking the same column
+                    if (currentSort.column === column) {
+                        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        currentSort.column = column;
+                        currentSort.direction = 'asc';
+                    }
+                    
+                    // Update sort icons
+                    sortIcons.forEach(sortIcon => {
+                        const iconElement = sortIcon.querySelector('i');
+                        if (sortIcon.getAttribute('data-sort') === currentSort.column) {
+                            iconElement.className = currentSort.direction === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+                        } else {
+                            iconElement.className = 'fas fa-sort';
+                        }
+                    });
+                    
+                    // Get all rows
+                    const rows = Array.from(tbody.querySelectorAll('tr.generated-row'));
+                    console.log('Rows found:', rows.length);
+                    
+                    if (rows.length === 0) {
+                        console.log('No rows with .generated-row class found');
+                        return;
+                    }
+                    
+                    // Sort the rows
+                    rows.sort((a, b) => {
+                        let aValue = a.getAttribute(`data-${column}`);
+                        let bValue = b.getAttribute(`data-${column}`);
+                        
+                        console.log(`Comparing ${column}:`, aValue, 'vs', bValue);
+                        
+                        // Handle null/undefined values
+                        if (!aValue) aValue = '';
+                        if (!bValue) bValue = '';
+                        
+                        // Handle date sorting
+                        if (column === 'created' || column === 'modified') {
+                            const aDate = new Date(aValue).getTime();
+                            const bDate = new Date(bValue).getTime();
+                            
+                            if (isNaN(aDate)) aValue = 0;
+                            if (isNaN(bDate)) bValue = 0;
+                            
+                            if (currentSort.direction === 'asc') {
+                                return aDate - bDate;
+                            } else {
+                                return bDate - aDate;
+                            }
+                        }
+                        
+                        // Handle text sorting
+                        if (currentSort.direction === 'asc') {
+                            return aValue.localeCompare(bValue);
+                        } else {
+                            return bValue.localeCompare(aValue);
+                        }
+                    });
+                    
+                    // Clear tbody and re-append sorted rows
+                    tbody.innerHTML = '';
+                    rows.forEach(row => {
+                        tbody.appendChild(row);
+                    });
+                    
+                    console.log('Sorting completed');
+                });
+            });
+        } else {
+            console.log('Table elements not found or no sort icons');
+        }
+    }, 100);
+});
+</script>
 {% endblock %}

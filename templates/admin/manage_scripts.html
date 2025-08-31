@@ -37,23 +37,28 @@
     }
     .action-buttons {
         display: flex;
-        gap: 0.25rem;
+        gap: 1rem;
     }
     .action-buttons .button {
         padding: 0.5rem;
-        border-color: #8b8680;
-        color: #6b645f;
+        border: none;
+        box-shadow: none;
+        color: #a8a8a8;
         background-color: transparent;
+        font-size: 1.25rem;
     }
     .action-buttons .button:hover {
-        border-color: #6b645f;
-        color: #4a453f;
-        background-color: #f5f4f3;
+        color: #6b6b6b;
+        background-color: #f8f8f8;
+        border-radius: 4px;
     }
     .action-buttons .button.delete-script:hover {
-        border-color: #dc3545;
         color: #dc3545;
         background-color: #fff5f5;
+    }
+    .action-buttons .button:focus {
+        box-shadow: none;
+        outline: none;
     }
 </style>
 {% endblock %}
@@ -306,46 +311,51 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Sorting functionality
     const sortIcons = document.querySelectorAll('.sort-icon');
+    const tbody = document.querySelector('tbody');
     
-    sortIcons.forEach(icon => {
-        icon.addEventListener('click', function() {
-            const column = this.getAttribute('data-sort');
-            
-            // Toggle direction if clicking the same column
-            if (currentSort.column === column) {
-                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
-            } else {
-                currentSort.column = column;
-                currentSort.direction = 'asc';
-            }
-            
-            // Update sort icons
-            sortIcons.forEach(icon => {
-                const iconElement = icon.querySelector('i');
-                if (icon.getAttribute('data-sort') === currentSort.column) {
-                    iconElement.className = currentSort.direction === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+    if (tbody && sortIcons.length > 0) {
+        sortIcons.forEach(icon => {
+            icon.addEventListener('click', function() {
+                const column = this.getAttribute('data-sort');
+                
+                // Toggle direction if clicking the same column
+                if (currentSort.column === column) {
+                    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
                 } else {
-                    iconElement.className = 'fas fa-sort';
+                    currentSort.column = column;
+                    currentSort.direction = 'asc';
                 }
-            });
-            
-            // Sort the rows
-            const tbody = document.querySelector('tbody');
-            const rowsArray = Array.from(tbody.querySelectorAll('.script-row'));
+                
+                // Update sort icons
+                sortIcons.forEach(icon => {
+                    const iconElement = icon.querySelector('i');
+                    if (icon.getAttribute('data-sort') === currentSort.column) {
+                        iconElement.className = currentSort.direction === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
+                    } else {
+                        iconElement.className = 'fas fa-sort';
+                    }
+                });
+                
+                // Sort the rows
+                const rowsArray = Array.from(tbody.querySelectorAll('.script-row'));
             
             rowsArray.sort((a, b) => {
                 let aValue = a.getAttribute(`data-${column}`);
                 let bValue = b.getAttribute(`data-${column}`);
                 
+                // Handle null/undefined values
+                if (!aValue) aValue = '';
+                if (!bValue) bValue = '';
+                
                 // Handle date sorting
                 if (column === 'created') {
-                    aValue = new Date(aValue).getTime();
-                    bValue = new Date(bValue).getTime();
+                    const aDate = new Date(aValue).getTime();
+                    const bDate = new Date(bValue).getTime();
                     
                     if (currentSort.direction === 'asc') {
-                        return aValue - bValue;
+                        return aDate - bDate;
                     } else {
-                        return bValue - aValue;
+                        return bDate - aDate;
                     }
                 }
                 
@@ -357,15 +367,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             });
             
-            // Clear tbody and re-append sorted rows
-            tbody.innerHTML = '';
-            rowsArray.forEach(row => tbody.appendChild(row));
+            // Reorder rows without clearing (to preserve event listeners)
+            rowsArray.forEach(row => {
+                tbody.appendChild(row);
+            });
             
-            // Reset to first page
-            currentPage = 1;
-            updatePagination();
+                // Reset to first page
+                currentPage = 1;
+                updatePagination();
+            });
         });
-    });
+    }
     
     // Pagination functionality
     function updatePagination() {
@@ -481,24 +493,27 @@ document.addEventListener('DOMContentLoaded', function() {
         updatePagination();
     });
     
-    // Delete script functionality
-    const deleteButtons = document.querySelectorAll('.delete-script');
+    // Delete script functionality (using event delegation for dynamic content)
     const deleteModal = document.getElementById('delete-modal');
     const closeModalButton = document.getElementById('close-modal');
     const cancelDeleteButton = document.getElementById('cancel-delete');
     const deleteForm = document.getElementById('delete-form');
     const scriptNameToDelete = document.getElementById('script-name-to-delete');
     
-    deleteButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            const scriptId = this.getAttribute('data-script-id');
-            const scriptName = this.getAttribute('data-script-name');
-            
-            deleteForm.action = `/admin/scripts/${scriptId}/delete`;
-            scriptNameToDelete.textContent = scriptName;
-            deleteModal.classList.add('is-active');
+    // Use event delegation for delete buttons
+    if (tbody) {
+        tbody.addEventListener('click', function(e) {
+            const deleteButton = e.target.closest('.delete-script');
+            if (deleteButton) {
+                const scriptId = deleteButton.getAttribute('data-script-id');
+                const scriptName = deleteButton.getAttribute('data-script-name');
+                
+                deleteForm.action = `/admin/scripts/${scriptId}/delete`;
+                scriptNameToDelete.textContent = scriptName;
+                deleteModal.classList.add('is-active');
+            }
         });
-    });
+    }
     
     function closeModal() {
         deleteModal.classList.remove('is-active');
