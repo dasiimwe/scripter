@@ -410,35 +410,29 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Save the script and template first
-        const form = document.querySelector('form');
-        const formData = new FormData();
-        
-        // Explicitly capture all form fields to ensure they're saved
+        // Save the script and template first using the special endpoint that doesn't validate undefined variables
         const nameInput = document.querySelector('input[name="name"]');
         const statusSelect = document.querySelector('select[name="status"]');
         const outputFormatSelect = document.querySelector('select[name="output_format"]');
         
-        if (nameInput) {
-            formData.append('name', nameInput.value);
-        }
-        if (statusSelect) {
-            formData.append('status', statusSelect.value);
-        }
-        if (outputFormatSelect) {
-            formData.append('output_format', outputFormatSelect.value);
-        }
+        const saveData = {
+            template_content: editor.getValue(),
+            name: nameInput ? nameInput.value : '',
+            status: statusSelect ? statusSelect.value : '',
+            output_format: outputFormatSelect ? outputFormatSelect.value : 'text'
+        };
         
-        // Update the template content with the current editor value
-        formData.append('content', editor.getValue());
-        
-        // Save template changes via form submission
-        fetch(form.action, {
+        // Save template changes using the special endpoint for adding fields
+        fetch(`/api/scripts/${scriptId}/save_template_for_fields`, {
             method: 'POST',
-            body: formData
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(saveData)
         })
-        .then(response => {
-            if (response.ok) {
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
                 // Reset the unsaved changes flag after successful save
                 hasUnsavedChanges = false;
                 originalContent = editor.getValue();
@@ -455,12 +449,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     location.reload();
                 });
             } else {
-                alert('Failed to save template changes');
+                alert('Failed to save template changes: ' + (data.error || 'Unknown error'));
             }
         })
         .catch(error => {
             console.error('Error saving template:', error);
-            alert('Error saving template changes');
+            alert('Error saving template changes: ' + error.message);
         });
     });
     
@@ -517,34 +511,28 @@ document.addEventListener('DOMContentLoaded', function() {
     // Function to add a variable as a form field (with reload for single additions)
     function addVariableAsField(variable) {
         // Save the script and template first when adding individual fields
-        const form = document.querySelector('form');
-        const formData = new FormData();
-        
-        // Explicitly capture all form fields to ensure they're saved
         const nameInput = document.querySelector('input[name="name"]');
         const statusSelect = document.querySelector('select[name="status"]');
         const outputFormatSelect = document.querySelector('select[name="output_format"]');
         
-        if (nameInput) {
-            formData.append('name', nameInput.value);
-        }
-        if (statusSelect) {
-            formData.append('status', statusSelect.value);
-        }
-        if (outputFormatSelect) {
-            formData.append('output_format', outputFormatSelect.value);
-        }
+        const saveData = {
+            template_content: editor.getValue(),
+            name: nameInput ? nameInput.value : '',
+            status: statusSelect ? statusSelect.value : '',
+            output_format: outputFormatSelect ? outputFormatSelect.value : 'text'
+        };
         
-        // Update the template content with the current editor value
-        formData.append('content', editor.getValue());
-        
-        // Save template changes via form submission
-        fetch(form.action, {
+        // Save template changes using the special endpoint for adding fields
+        fetch(`/api/scripts/${scriptId}/save_template_for_fields`, {
             method: 'POST',
-            body: formData
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(saveData)
         })
-        .then(response => {
-            if (response.ok) {
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
                 // Reset the unsaved changes flag after successful save
                 hasUnsavedChanges = false;
                 originalContent = editor.getValue();
@@ -552,7 +540,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // After template is saved, add the field
                 return addVariableAsFieldWithoutReload(variable);
             } else {
-                throw new Error('Failed to save template changes');
+                throw new Error(data.error || 'Failed to save template changes');
             }
         })
         .then(success => {

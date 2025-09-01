@@ -71,6 +71,7 @@ class User(UserMixin, db.Model):
 class Script(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
+    script_instructions = db.Column(db.Text)  # HTML content from WYSIWYG editor
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     creator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
@@ -167,8 +168,22 @@ def load_user(user_id):
 @app.route('/')
 def index():
     try:
+        # Get active scripts with their form fields
         active_scripts = Script.query.filter_by(status='active').all()
-        return render_template('index.html', scripts=active_scripts)
+        
+        # Prepare scripts data with form fields
+        scripts_data = []
+        for script in active_scripts:
+            form_fields = FormField.query.filter_by(script_id=script.id).order_by(FormField.display_order).all()
+            field_names = [field.label or field.name for field in form_fields]
+            
+            script_info = {
+                'script': script,
+                'form_fields': field_names
+            }
+            scripts_data.append(script_info)
+        
+        return render_template('index.html', scripts_data=scripts_data)
     except Exception as e:
         app.logger.error(f"Error accessing database: {str(e)}")
         # If there's a database error, redirect to setup
@@ -247,9 +262,11 @@ def create_script():
     
     if request.method == 'POST':
         name = request.form.get('name')
+        script_instructions = request.form.get('script_instructions', '')
         
         script = Script(
             name=name,
+            script_instructions=script_instructions,
             creator_id=current_user.id
         )
         
@@ -329,6 +346,7 @@ def edit_script(script_id):
         # Update script details
         new_name = request.form.get('name')
         new_status = request.form.get('status')
+        new_script_instructions = request.form.get('script_instructions', '')
         
         # Track script name/status changes
         if old_name != new_name:
@@ -357,6 +375,7 @@ def edit_script(script_id):
         
         script.name = new_name
         script.status = new_status
+        script.script_instructions = new_script_instructions
         
         # Update template
         template_content = request.form.get('content')
@@ -569,9 +588,21 @@ def view_script(script_id):
         )
         db.session.add(submission)
         
+        # Create name for generated script (use first 2 fields for name)
+        name_parts = []
+        for field in form_fields[:2]:  # Use first 2 fields for name
+            value = form_data.get(field.name, '').strip()
+            if value:
+                name_parts.append(value[:20])  # Limit length to 20 chars per field
+        
+        if name_parts:
+            generated_name = f"{script.name} - {' '.join(name_parts)}"
+        else:
+            generated_name = f"{script.name} - {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+        
         # Also create a GeneratedScript record for easy access
         generated_script = GeneratedScript(
-            name=f"{script.name} - {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}",
+            name=generated_name[:200],  # Limit to DB field size
             original_script_id=script_id,
             generated_content=output,
             user_id=current_user.id,
@@ -792,18 +823,42 @@ def list_generated_scripts():
     """List all generated scripts for the current user"""
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
+    sort_by = request.args.get('sort', 'created_at')
+    order = request.args.get('order', 'desc')
+    search_query = request.args.get('search', '').strip()
     
     # Build query
     query = GeneratedScript.query.filter_by(user_id=current_user.id)
     
     # Add search functionality
-    search_query = request.args.get('search', '').strip()
     if search_query:
         search_pattern = f'%{search_query}%'
-        query = query.filter(GeneratedScript.name.ilike(search_pattern))
+        query = query.filter(
+            db.or_(
+                GeneratedScript.name.ilike(search_pattern),
+                GeneratedScript.batch_id.ilike(search_pattern)
+            )
+        )
     
-    # Order by creation date (newest first) and paginate
-    pagination = query.order_by(GeneratedScript.created_at.desc()).paginate(
+    # Apply sorting
+    valid_sort_columns = {
+        'name': GeneratedScript.name,
+        'batch': GeneratedScript.batch_id,
+        'batch_id': GeneratedScript.batch_id,  # alias
+        'created_at': GeneratedScript.created_at,
+        'created': GeneratedScript.created_at,  # alias for frontend
+        'modified_at': GeneratedScript.modified_at,
+        'modified': GeneratedScript.modified_at,  # alias for frontend
+    }
+    
+    sort_column = valid_sort_columns.get(sort_by, GeneratedScript.created_at)
+    if order == 'desc':
+        query = query.order_by(sort_column.desc())
+    else:
+        query = query.order_by(sort_column.asc())
+    
+    # Paginate
+    pagination = query.paginate(
         page=page,
         per_page=per_page,
         error_out=False
@@ -815,7 +870,9 @@ def list_generated_scripts():
                          generated_scripts=generated_scripts,
                          pagination=pagination,
                          search_query=search_query,
-                         per_page=per_page)
+                         per_page=per_page,
+                         current_sort=sort_by,
+                         current_order=order)
 
 @app.route('/generated-scripts/<int:generated_id>/view')
 @login_required
@@ -985,6 +1042,60 @@ def detect_variables(script_id):
     except Exception as e:
         app.logger.error(f"Error in detect_variables: {str(e)}", exc_info=True)
         return jsonify({'error': f'Error detecting variables: {str(e)}'}), 500
+
+@app.route('/api/scripts/<int:script_id>/save_template_for_fields', methods=['POST'])
+@login_required
+def save_template_for_fields(script_id):
+    """Save template without undefined variable validation - used when adding fields"""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied'})
+    
+    script = Script.query.get_or_404(script_id)
+    template = script.template
+    
+    data = request.json
+    template_content = data.get('template_content', '')
+    script_name = data.get('name', script.name)
+    script_status = data.get('status', script.status)
+    output_format = data.get('output_format', template.output_format if template else 'text')
+    
+    try:
+        from jinja2 import Environment, TemplateSyntaxError
+        env = Environment()
+        
+        # Only check for syntax errors, not undefined variables
+        try:
+            env.parse(template_content)
+        except TemplateSyntaxError as e:
+            return jsonify({
+                'success': False, 
+                'error': f'Template syntax error at line {e.lineno}: {str(e)}'
+            })
+        
+        # Update script properties
+        script.name = script_name
+        script.status = script_status
+        
+        # Save template content
+        if template:
+            template.content = template_content
+            template.output_format = output_format
+        else:
+            # Create new template if it doesn't exist
+            template = Template(
+                script_id=script_id,
+                content=template_content,
+                output_format=output_format,
+                version=1
+            )
+            db.session.add(template)
+        
+        db.session.commit()
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/scripts/<int:script_id>/validate_template', methods=['POST'])
 @login_required
@@ -1474,6 +1585,19 @@ def migrate_database():
                     conn.execute(db.text("UPDATE schema_version SET version = 3"))
                     conn.commit()
             
+            if current_version < 4:
+                migration_log.append("Applying migration v4: Adding script_instructions to script")
+                try:
+                    with db.engine.connect() as conn:
+                        conn.execute(db.text("ALTER TABLE script ADD COLUMN script_instructions TEXT"))
+                        conn.commit()
+                except Exception as e:
+                    migration_log.append(f"Column script_instructions might already exist: {str(e)}")
+                
+                with db.engine.connect() as conn:
+                    conn.execute(db.text("UPDATE schema_version SET version = 4"))
+                    conn.commit()
+            
             # Get the new version
             with db.engine.connect() as conn:
                 result = conn.execute(db.text("SELECT version FROM schema_version ORDER BY id DESC LIMIT 1"))
@@ -1814,8 +1938,52 @@ def admin_scripts():
         flash('You do not have permission to access this page.')
         return redirect(url_for('index'))
     
-    scripts = Script.query.all()
-    return render_template('admin/manage_scripts.html', scripts=scripts)
+    # Get sorting and search parameters
+    sort_by = request.args.get('sort', 'created_at')
+    order = request.args.get('order', 'desc')
+    search_query = request.args.get('search', '').strip()
+    
+    # Build query
+    query = Script.query
+    
+    # Add search functionality
+    if search_query:
+        search_pattern = f'%{search_query}%'
+        query = query.filter(Script.name.ilike(search_pattern))
+    
+    # Apply sorting
+    valid_sort_columns = {
+        'name': Script.name,
+        'status': Script.status,
+        'created_at': Script.created_at,
+        'created': Script.created_at  # alias for frontend
+    }
+    
+    sort_column = valid_sort_columns.get(sort_by, Script.created_at)
+    if order == 'desc':
+        query = query.order_by(sort_column.desc())
+    else:
+        query = query.order_by(sort_column.asc())
+    
+    scripts = query.all()
+    
+    # Prepare scripts data with form fields
+    scripts_data = []
+    for script in scripts:
+        form_fields = FormField.query.filter_by(script_id=script.id).order_by(FormField.display_order).all()
+        field_names = [field.label or field.name for field in form_fields]
+        
+        script_info = {
+            'script': script,
+            'form_fields': field_names
+        }
+        scripts_data.append(script_info)
+    
+    return render_template('admin/manage_scripts.html', 
+                         scripts_data=scripts_data,
+                         current_sort=sort_by,
+                         current_order=order,
+                         search_query=search_query)
 
 # Add the missing delete_script route
 @app.route('/admin/scripts/<int:script_id>/delete', methods=['POST'])

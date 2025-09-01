@@ -122,7 +122,16 @@ def migrate_database():
             ''')
             logger.info("Created AuthConfig table with default settings")
         
-        # 3. Update any references from Submission to FormSubmission if needed
+        # 3. Add script_instructions column to Script table
+        if check_table_exists(conn, 'script'):
+            if not check_column_exists(conn, 'script', 'script_instructions'):
+                logger.info("Adding script_instructions column to Script table...")
+                cursor.execute("ALTER TABLE script ADD COLUMN script_instructions TEXT")
+                logger.info("Added script_instructions column to Script table")
+            else:
+                logger.info("script_instructions column already exists in Script table")
+        
+        # 4. Update any references from Submission to FormSubmission if needed
         if check_table_exists(conn, 'submission') and not check_table_exists(conn, 'form_submission'):
             logger.info("Renaming Submission table to FormSubmission...")
             cursor.execute('''

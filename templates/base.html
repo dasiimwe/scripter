@@ -7,6 +7,27 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
     <script defer src="https://use.fontawesome.com/releases/v5.15.4/js/all.js"></script>
+    <style>
+        /* Match dropdown background to navbar primary color */
+        .navbar.is-primary .navbar-dropdown {
+            background-color: #00d1b2;
+            border-top: 2px solid #00c4a7;
+        }
+        .navbar.is-primary .navbar-dropdown .navbar-item {
+            color: white;
+        }
+        .navbar.is-primary .navbar-dropdown .navbar-item:hover {
+            background-color: #00c4a7;
+            color: white;
+        }
+        .navbar.is-primary .navbar-dropdown .navbar-divider {
+            background-color: #00c4a7;
+        }
+        .navbar.is-primary .navbar-item.has-dropdown:hover .navbar-link,
+        .navbar.is-primary .navbar-item.has-dropdown.is-active .navbar-link {
+            background-color: #00c4a7;
+        }
+    </style>
     {% block head_extra %}{% endblock %}
     {% if csrf_token %}
     <meta name="csrf-token" content="{{ csrf_token() }}">
@@ -28,43 +49,63 @@
         
         <div id="navbarBasic" class="navbar-menu">
             <div class="navbar-start">
-                <a class="navbar-item" href="{{ url_for('index') }}">
-                    Home
-                </a>
-                
-                {% if current_user.is_authenticated %}
-                <a class="navbar-item" href="{{ url_for('list_generated_scripts') }}">
-                    Generated Scripts
-                </a>
-                {% endif %}
                 
                 {% if current_user.is_authenticated and current_user.is_admin %}
                 <a class="navbar-item" href="{{ url_for('admin_scripts') }}">
                     Manage Scripts
                 </a>
-                <a class="navbar-item" href="{{ url_for('admin_users') }}">
-                    Manage Users
-                </a>
-                <a class="navbar-item" href="{{ url_for('auth_config') }}">
-                    Auth Settings
+                {% endif %}
+
+                {% if current_user.is_authenticated %}
+                <a class="navbar-item" href="{{ url_for('list_generated_scripts') }}">
+                    Generated Scripts
                 </a>
                 {% endif %}
+                                
             </div>
             
             <div class="navbar-end">
+                {% if current_user.is_authenticated %}
+                <div class="navbar-item has-dropdown is-hoverable">
+                    <a class="navbar-link">
+                        <span class="icon">
+                            <i class="fas fa-user"></i>
+                        </span>
+                        <span>{{ current_user.username }}</span>
+                    </a>
+                    <div class="navbar-dropdown is-right">
+                        {% if current_user.is_admin %}
+                        <a class="navbar-item" href="{{ url_for('admin_users') }}">
+                            <span class="icon">
+                                <i class="fas fa-users"></i>
+                            </span>
+                            <span>Manage Users</span>
+                        </a>
+                        <a class="navbar-item" href="{{ url_for('auth_config') }}">
+                            <span class="icon">
+                                <i class="fas fa-cog"></i>
+                            </span>
+                            <span>Auth Settings</span>
+                        </a>
+                        <hr class="navbar-divider">
+                        {% endif %}
+                        <a class="navbar-item" href="{{ url_for('logout') }}">
+                            <span class="icon">
+                                <i class="fas fa-sign-out-alt"></i>
+                            </span>
+                            <span>Log out</span>
+                        </a>
+                    </div>
+                </div>
+                {% else %}
                 <div class="navbar-item">
                     <div class="buttons">
-                        {% if current_user.is_authenticated %}
-                        <a class="button is-light" href="{{ url_for('logout') }}">
-                            Log out
-                        </a>
-                        {% else %}
                         <a class="button is-light" href="{{ url_for('login') }}">
                             Log in
                         </a>
-                        {% endif %}
                     </div>
                 </div>
+                {% endif %}
             </div>
         </div>
     </nav>

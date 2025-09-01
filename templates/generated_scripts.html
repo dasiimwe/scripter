@@ -28,12 +28,14 @@
     <!-- Search and Filter Section -->
     <div class="box">
         <form method="GET" action="{{ url_for('list_generated_scripts') }}">
+            <input type="hidden" name="sort" value="{{ current_sort }}">
+            <input type="hidden" name="order" value="{{ current_order }}">
             <div class="columns">
                 <div class="column is-6">
                     <div class="field">
                         <label class="label">Search</label>
                         <div class="control has-icons-left">
-                            <input class="input" type="text" name="search" placeholder="Search generated scripts..." value="{{ search_query }}">
+                            <input class="input" type="text" name="search" placeholder="Search by name or batch ID..." value="{{ search_query }}">
                             <span class="icon is-small is-left">
                                 <i class="fas fa-search"></i>
                             </span>
@@ -45,7 +47,7 @@
                         <label class="label">Per Page</label>
                         <div class="control">
                             <div class="select is-fullwidth">
-                                <select name="per_page">
+                                <select name="per_page" onchange="this.form.submit()">
                                     <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
                                     <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
                                     <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
@@ -103,34 +105,61 @@
                     <thead>
                         <tr>
                             <th>
-                                Name
-                                <span class="icon sort-icon" data-sort="name">
-                                    <i class="fas fa-sort"></i>
-                                </span>
+                                <a href="{{ url_for('list_generated_scripts', sort='name', order=('asc' if current_sort == 'name' and current_order == 'desc' else 'desc'), search=search_query, per_page=per_page) }}" class="has-text-dark">
+                                    Name
+                                    {% if current_sort == 'name' %}
+                                        {% if current_order == 'asc' %}
+                                            <span class="icon"><i class="fas fa-sort-up"></i></span>
+                                        {% else %}
+                                            <span class="icon"><i class="fas fa-sort-down"></i></span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="icon"><i class="fas fa-sort"></i></span>
+                                    {% endif %}
+                                </a>
+                            </th>
+                            <th>Original Script</th>
+                            <th>
+                                <a href="{{ url_for('list_generated_scripts', sort='batch', order=('asc' if current_sort == 'batch' and current_order == 'desc' else 'desc'), search=search_query, per_page=per_page) }}" class="has-text-dark">
+                                    Batch ID
+                                    {% if current_sort == 'batch' %}
+                                        {% if current_order == 'asc' %}
+                                            <span class="icon"><i class="fas fa-sort-up"></i></span>
+                                        {% else %}
+                                            <span class="icon"><i class="fas fa-sort-down"></i></span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="icon"><i class="fas fa-sort"></i></span>
+                                    {% endif %}
+                                </a>
                             </th>
                             <th>
-                                Original Script
-                                <span class="icon sort-icon" data-sort="original">
-                                    <i class="fas fa-sort"></i>
-                                </span>
+                                <a href="{{ url_for('list_generated_scripts', sort='created', order=('asc' if current_sort == 'created' and current_order == 'desc' else 'desc'), search=search_query, per_page=per_page) }}" class="has-text-dark">
+                                    Created
+                                    {% if current_sort == 'created' %}
+                                        {% if current_order == 'asc' %}
+                                            <span class="icon"><i class="fas fa-sort-up"></i></span>
+                                        {% else %}
+                                            <span class="icon"><i class="fas fa-sort-down"></i></span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="icon"><i class="fas fa-sort"></i></span>
+                                    {% endif %}
+                                </a>
                             </th>
                             <th>
-                                Batch ID
-                                <span class="icon sort-icon" data-sort="batch">
-                                    <i class="fas fa-sort"></i>
-                                </span>
-                            </th>
-                            <th>
-                                Created
-                                <span class="icon sort-icon" data-sort="created">
-                                    <i class="fas fa-sort"></i>
-                                </span>
-                            </th>
-                            <th>
-                                Modified
-                                <span class="icon sort-icon" data-sort="modified">
-                                    <i class="fas fa-sort"></i>
-                                </span>
+                                <a href="{{ url_for('list_generated_scripts', sort='modified', order=('asc' if current_sort == 'modified' and current_order == 'desc' else 'desc'), search=search_query, per_page=per_page) }}" class="has-text-dark">
+                                    Modified
+                                    {% if current_sort == 'modified' %}
+                                        {% if current_order == 'asc' %}
+                                            <span class="icon"><i class="fas fa-sort-up"></i></span>
+                                        {% else %}
+                                            <span class="icon"><i class="fas fa-sort-down"></i></span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="icon"><i class="fas fa-sort"></i></span>
+                                    {% endif %}
+                                </a>
                             </th>
                             <th>Actions</th>
                         </tr>
@@ -218,14 +247,14 @@
         {% if pagination.pages > 1 %}
         <nav class="pagination is-centered" role="navigation" aria-label="pagination">
             {% if pagination.has_prev %}
-            <a href="{{ url_for('list_generated_scripts', page=pagination.prev_num, search=search_query, per_page=per_page) }}" 
+            <a href="{{ url_for('list_generated_scripts', page=pagination.prev_num, search=search_query, per_page=per_page, sort=current_sort, order=current_order) }}" 
                class="pagination-previous">Previous</a>
             {% else %}
             <a class="pagination-previous" disabled>Previous</a>
             {% endif %}
             
             {% if pagination.has_next %}
-            <a href="{{ url_for('list_generated_scripts', page=pagination.next_num, search=search_query, per_page=per_page) }}" 
+            <a href="{{ url_for('list_generated_scripts', page=pagination.next_num, search=search_query, per_page=per_page, sort=current_sort, order=current_order) }}" 
                class="pagination-next">Next</a>
             {% else %}
             <a class="pagination-next" disabled>Next</a>
@@ -236,7 +265,7 @@
                     {% if page_num %}
                         {% if page_num != pagination.page %}
                         <li>
-                            <a href="{{ url_for('list_generated_scripts', page=page_num, search=search_query, per_page=per_page) }}" 
+                            <a href="{{ url_for('list_generated_scripts', page=page_num, search=search_query, per_page=per_page, sort=current_sort, order=current_order) }}" 
                                class="pagination-link">{{ page_num }}</a>
                         </li>
                         {% else %}
@@ -272,99 +301,4 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Wait a bit to ensure table is fully loaded
-    setTimeout(function() {
-        const sortIcons = document.querySelectorAll('.sort-icon');
-        const tbody = document.querySelector('tbody');
-        let currentSort = { column: null, direction: 'asc' };
-        
-        console.log('Sort icons found:', sortIcons.length);
-        console.log('Tbody found:', tbody ? 'yes' : 'no');
-        
-        if (tbody && sortIcons.length > 0) {
-            sortIcons.forEach(icon => {
-                icon.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    console.log('Sort clicked:', this.getAttribute('data-sort'));
-                    
-                    const column = this.getAttribute('data-sort');
-                    
-                    // Toggle direction if clicking the same column
-                    if (currentSort.column === column) {
-                        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
-                    } else {
-                        currentSort.column = column;
-                        currentSort.direction = 'asc';
-                    }
-                    
-                    // Update sort icons
-                    sortIcons.forEach(sortIcon => {
-                        const iconElement = sortIcon.querySelector('i');
-                        if (sortIcon.getAttribute('data-sort') === currentSort.column) {
-                            iconElement.className = currentSort.direction === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
-                        } else {
-                            iconElement.className = 'fas fa-sort';
-                        }
-                    });
-                    
-                    // Get all rows
-                    const rows = Array.from(tbody.querySelectorAll('tr.generated-row'));
-                    console.log('Rows found:', rows.length);
-                    
-                    if (rows.length === 0) {
-                        console.log('No rows with .generated-row class found');
-                        return;
-                    }
-                    
-                    // Sort the rows
-                    rows.sort((a, b) => {
-                        let aValue = a.getAttribute(`data-${column}`);
-                        let bValue = b.getAttribute(`data-${column}`);
-                        
-                        console.log(`Comparing ${column}:`, aValue, 'vs', bValue);
-                        
-                        // Handle null/undefined values
-                        if (!aValue) aValue = '';
-                        if (!bValue) bValue = '';
-                        
-                        // Handle date sorting
-                        if (column === 'created' || column === 'modified') {
-                            const aDate = new Date(aValue).getTime();
-                            const bDate = new Date(bValue).getTime();
-                            
-                            if (isNaN(aDate)) aValue = 0;
-                            if (isNaN(bDate)) bValue = 0;
-                            
-                            if (currentSort.direction === 'asc') {
-                                return aDate - bDate;
-                            } else {
-                                return bDate - aDate;
-                            }
-                        }
-                        
-                        // Handle text sorting
-                        if (currentSort.direction === 'asc') {
-                            return aValue.localeCompare(bValue);
-                        } else {
-                            return bValue.localeCompare(aValue);
-                        }
-                    });
-                    
-                    // Clear tbody and re-append sorted rows
-                    tbody.innerHTML = '';
-                    rows.forEach(row => {
-                        tbody.appendChild(row);
-                    });
-                    
-                    console.log('Sorting completed');
-                });
-            });
-        } else {
-            console.log('Table elements not found or no sort icons');
-        }
-    }, 100);
-});
-</script>
 {% endblock %}
