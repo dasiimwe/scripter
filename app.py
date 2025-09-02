@@ -391,9 +391,20 @@ def edit_script(script_id):
                 parsed_template = env.parse(template_content)
             except TemplateSyntaxError as e:
                 error_msg = f'Template syntax error at line {e.lineno}: {str(e)}'
+                # Create temporary objects with submitted form data to preserve user input
+                script.name = new_name
+                script.status = new_status
+                script.script_instructions = new_script_instructions
+                
+                # Create a temporary template object with submitted content
+                temp_template = type('obj', (object,), {
+                    'content': template_content,
+                    'output_format': output_format
+                })
+                
                 return render_template('admin/edit_script.html', 
                                      script=script, 
-                                     template=template,
+                                     template=temp_template,
                                      jinja_snippets=jinja_snippets,
                                      template_error=error_msg)
             
@@ -408,9 +419,20 @@ def edit_script(script_id):
             undefined_vars = template_variables - form_field_names
             if undefined_vars:
                 error_msg = f'Template contains undefined variables: {", ".join(sorted(undefined_vars))}. Please add corresponding form fields or remove these variables from the template.'
+                # Create temporary objects with submitted form data to preserve user input
+                script.name = new_name
+                script.status = new_status
+                script.script_instructions = new_script_instructions
+                
+                # Create a temporary template object with submitted content
+                temp_template = type('obj', (object,), {
+                    'content': template_content,
+                    'output_format': output_format
+                })
+                
                 return render_template('admin/edit_script.html', 
                                      script=script, 
-                                     template=template,
+                                     template=temp_template,
                                      jinja_snippets=jinja_snippets,
                                      template_error=error_msg)
         
