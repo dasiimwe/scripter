@@ -34,6 +34,11 @@
                             </div>
                         {% else %}
                             <label class="label">{{ field.label }}</label>
+                            <div class="ip-helper-link" data-field="{{ field.name }}">
+                                <a href="#" onclick="openIPHelper('{{ field.name }}'); return false;">
+                                    <i class="fas fa-calculator"></i> IP Helper
+                                </a>
+                            </div>
                             <div class="control">
                                 {% if field.field_type == 'textarea' %}
                                     <textarea class="textarea" name="{{ field.name }}" 

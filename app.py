@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, make_response
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, make_response, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -13,6 +13,7 @@ from wtforms import StringField, PasswordField, BooleanField, SelectField, TextA
 from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional
 import tacacs_plus
 from tacacs_plus.client import TACACSClient
+import difflib
 # from flask_wtf.csrf import CSRFProtect
 
 # Create instance directory if it doesn't exist
@@ -30,6 +31,15 @@ db_path = os.path.join(instance_path, 'scripter.db')
 app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['WTF_CSRF_ENABLED'] = False  # Disable CSRF for the entire application
+
+# Add JSON filter for templates
+import json
+@app.template_filter('from_json')
+def from_json_filter(value):
+    try:
+        return json.loads(value) if value else {}
+    except (ValueError, TypeError):
+        return {}
 
 # Initialize extensions
 db = SQLAlchemy(app)
@@ -61,6 +71,7 @@ class User(UserMixin, db.Model):
 class Script(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
+    script_instructions = db.Column(db.Text)  # HTML content from WYSIWYG editor
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     creator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
@@ -77,7 +88,7 @@ class Template(db.Model):
     script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
     content = db.Column(db.Text, nullable=False)
     version = db.Column(db.Integer, default=1)
-    output_format = db.Column(db.String(20), default='Plain Text')
+    output_format = db.Column(db.String(20), default='text')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -117,6 +128,37 @@ class AuthConfig(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class ScriptChange(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    change_type = db.Column(db.String(50), nullable=False)  # 'script_edit', 'template_edit', 'field_add', 'field_edit', 'field_delete'
+    change_date = db.Column(db.DateTime, default=datetime.utcnow)
+    field_name = db.Column(db.String(100))  # Which field was changed
+    old_value = db.Column(db.Text)  # Previous value (for diffs)
+    new_value = db.Column(db.Text)  # New value (for diffs)
+    description = db.Column(db.Text)  # Optional description of the change
+    
+    # Relationships
+    script = db.relationship('Script', backref='changes')
+    user = db.relationship('User', backref='script_changes')
+
+class GeneratedScript(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    original_script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    generated_content = db.Column(db.Text, nullable=False)
+    csv_row_data = db.Column(db.Text)  # Store the original CSV row data as JSON
+    batch_id = db.Column(db.String(50))  # Group scripts generated from same CSV upload
+    status = db.Column(db.String(20), default='active')  # active, archived, deleted
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    original_script = db.relationship('Script', backref='generated_scripts')
+    user = db.relationship('User', backref='generated_scripts')
+
 # User loader for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
@@ -126,8 +168,22 @@ def load_user(user_id):
 @app.route('/')
 def index():
     try:
+        # Get active scripts with their form fields
         active_scripts = Script.query.filter_by(status='active').all()
-        return render_template('index.html', scripts=active_scripts)
+        
+        # Prepare scripts data with form fields
+        scripts_data = []
+        for script in active_scripts:
+            form_fields = FormField.query.filter_by(script_id=script.id).order_by(FormField.display_order).all()
+            field_names = [field.label or field.name for field in form_fields]
+            
+            script_info = {
+                'script': script,
+                'form_fields': field_names
+            }
+            scripts_data.append(script_info)
+        
+        return render_template('index.html', scripts_data=scripts_data)
     except Exception as e:
         app.logger.error(f"Error accessing database: {str(e)}")
         # If there's a database error, redirect to setup
@@ -206,9 +262,11 @@ def create_script():
     
     if request.method == 'POST':
         name = request.form.get('name')
+        script_instructions = request.form.get('script_instructions', '')
         
         script = Script(
             name=name,
+            script_instructions=script_instructions,
             creator_id=current_user.id
         )
         
@@ -240,27 +298,7 @@ def edit_script(script_id):
     script = Script.query.get_or_404(script_id)
     template = script.template
     
-    # Form fields are automatically available through the relationship
-    
-    if request.method == 'POST':
-        # Update script details
-        script.name = request.form.get('name')
-        script.status = request.form.get('status')
-        
-        # Update template
-        template_content = request.form.get('content')
-        output_format = request.form.get('output_format')
-        
-        if template_content is not None:
-            template.version += 1
-            template.content = template_content
-            template.output_format = output_format
-        
-        db.session.commit()
-        flash(f'Script "{script.name}" updated successfully')
-        return redirect(url_for('admin_scripts'))
-    
-    # Define Jinja2 snippets for the template editor
+    # Define Jinja2 snippets for the template editor (moved here so it's available for error returns)
     jinja_snippets = [
         {
             'name': 'If Condition',
@@ -271,18 +309,144 @@ def edit_script(script_id):
             'code': '{% if condition %}\n    content if true\n{% else %}\n    content if false\n{% endif %}'
         },
         {
-            'name': 'If-Elif-Else Condition',
-            'code': '{% if condition1 %}\n    content if condition1 is true\n{% elif condition2 %}\n    content if condition2 is true\n{% else %}\n    content if all conditions are false\n{% endif %}'
+            'name': 'For Loop',
+            'code': '{% for item in items %}\n    {{ item }}\n{% endfor %}'
         },
         {
             'name': 'Variable',
             'code': '{{ variable_name }}'
         },
         {
-            'name': 'For Loop',
-            'code': '{% for item in items %}\n    {{ item }}\n{% endfor %}'
+            'name': 'Variable with Default',
+            'code': '{{ variable_name | default("default value") }}'
+        },
+        {
+            'name': 'Variable with Filter',
+            'code': '{{ variable_name | upper }}'
+        },
+        {
+            'name': 'Set Variable',
+            'code': '{% set variable = value %}'
+        },
+        {
+            'name': 'Comment',
+            'code': '{# This is a comment #}'
         }
     ]
+    
+    # Form fields are automatically available through the relationship
+    
+    if request.method == 'POST':
+        # Track changes
+        old_name = script.name
+        old_status = script.status
+        old_template_content = template.content if template else ""
+        old_output_format = template.output_format if template else "text"
+        
+        # Update script details
+        new_name = request.form.get('name')
+        new_status = request.form.get('status')
+        new_script_instructions = request.form.get('script_instructions', '')
+        
+        # Track script name/status changes
+        if old_name != new_name:
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='script_edit',
+                field_name='name',
+                old_value=old_name,
+                new_value=new_name,
+                description=f'Changed script name from "{old_name}" to "{new_name}"'
+            )
+            db.session.add(change)
+        
+        if old_status != new_status:
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='script_edit',
+                field_name='status',
+                old_value=old_status,
+                new_value=new_status,
+                description=f'Changed status from "{old_status}" to "{new_status}"'
+            )
+            db.session.add(change)
+        
+        script.name = new_name
+        script.status = new_status
+        script.script_instructions = new_script_instructions
+        
+        # Update template
+        template_content = request.form.get('content')
+        output_format = request.form.get('output_format')
+        
+        # Validate template syntax and variables before saving
+        if template_content:
+            from jinja2 import Environment, TemplateSyntaxError, meta
+            env = Environment()
+            
+            # Check for syntax errors
+            try:
+                parsed_template = env.parse(template_content)
+            except TemplateSyntaxError as e:
+                error_msg = f'Template syntax error at line {e.lineno}: {str(e)}'
+                return render_template('admin/edit_script.html', 
+                                     script=script, 
+                                     template=template,
+                                     jinja_snippets=jinja_snippets,
+                                     template_error=error_msg)
+            
+            # Get all variables used in the template
+            ast = env.parse(template_content)
+            template_variables = meta.find_undeclared_variables(ast)
+            
+            # Get all form field names for this script
+            form_field_names = {field.name for field in script.form_fields}
+            
+            # Check for undefined variables
+            undefined_vars = template_variables - form_field_names
+            if undefined_vars:
+                error_msg = f'Template contains undefined variables: {", ".join(sorted(undefined_vars))}. Please add corresponding form fields or remove these variables from the template.'
+                return render_template('admin/edit_script.html', 
+                                     script=script, 
+                                     template=template,
+                                     jinja_snippets=jinja_snippets,
+                                     template_error=error_msg)
+        
+        if template_content is not None and (old_template_content != template_content or old_output_format != output_format):
+            # Track template changes
+            if old_template_content != template_content:
+                change = ScriptChange(
+                    script_id=script_id,
+                    user_id=current_user.id,
+                    change_type='template_edit',
+                    field_name='content',
+                    old_value=old_template_content,
+                    new_value=template_content,
+                    description='Updated template content'
+                )
+                db.session.add(change)
+            
+            if old_output_format != output_format:
+                change = ScriptChange(
+                    script_id=script_id,
+                    user_id=current_user.id,
+                    change_type='template_edit',
+                    field_name='output_format',
+                    old_value=old_output_format,
+                    new_value=output_format,
+                    description=f'Changed output format from "{old_output_format}" to "{output_format}"'
+                )
+                db.session.add(change)
+            
+            template.version += 1
+            template.content = template_content
+            template.output_format = output_format
+        
+        db.session.commit()
+        flash(f'Script "{script.name}" updated successfully')
+        return redirect(url_for('admin_scripts'))
     
     return render_template('admin/edit_script.html', script=script, template=template, jinja_snippets=jinja_snippets)
 
@@ -423,6 +587,31 @@ def view_script(script_id):
             output=output
         )
         db.session.add(submission)
+        
+        # Create name for generated script (use first 2 fields for name)
+        name_parts = []
+        for field in form_fields[:2]:  # Use first 2 fields for name
+            value = form_data.get(field.name, '').strip()
+            if value:
+                name_parts.append(value[:20])  # Limit length to 20 chars per field
+        
+        if name_parts:
+            generated_name = f"{script.name} - {' '.join(name_parts)}"
+        else:
+            generated_name = f"{script.name} - {datetime.utcnow().strftime('%Y-%m-%d %H:%M')}"
+        
+        # Also create a GeneratedScript record for easy access
+        generated_script = GeneratedScript(
+            name=generated_name[:200],  # Limit to DB field size
+            original_script_id=script_id,
+            generated_content=output,
+            user_id=current_user.id,
+            csv_row_data=json.dumps(form_data),  # Store form data for reference
+            created_at=datetime.utcnow(),
+            modified_at=datetime.utcnow()
+        )
+        db.session.add(generated_script)
+        
         db.session.commit()
         submission_id = submission.id
     
@@ -472,6 +661,284 @@ def submit_form(script_id):
     
     return redirect(url_for('preview_output', script_id=script_id))
 
+@app.route('/scripts/<int:script_id>/csv-template')
+@login_required
+def download_csv_template(script_id):
+    """Generate and download CSV template for script form fields"""
+    script = Script.query.filter_by(id=script_id, status='active').first_or_404()
+    form_fields = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order).all()
+    
+    if not form_fields:
+        flash('No form fields defined for this script', 'warning')
+        return redirect(url_for('view_script', script_id=script_id))
+    
+    import csv
+    from io import StringIO
+    
+    output = StringIO()
+    writer = csv.writer(output)
+    
+    # Write header row with field names
+    headers = [field.name for field in form_fields]
+    writer.writerow(headers)
+    
+    # Write example row with field labels as guidance
+    example_row = [f"{field.label} ({field.field_type})" for field in form_fields]
+    writer.writerow(example_row)
+    
+    # Create response
+    csv_content = output.getvalue()
+    output.close()
+    
+    from flask import Response
+    response = Response(csv_content, mimetype='text/csv')
+    response.headers['Content-Disposition'] = f'attachment; filename="{script.name}_template.csv"'
+    
+    return response
+
+@app.route('/scripts/<int:script_id>/bulk-generate', methods=['GET', 'POST'])
+@login_required
+def bulk_generate_scripts(script_id):
+    """Upload CSV and generate multiple scripts"""
+    script = Script.query.filter_by(id=script_id, status='active').first_or_404()
+    form_fields = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order).all()
+    
+    if not form_fields:
+        flash('No form fields defined for this script', 'warning')
+        return redirect(url_for('view_script', script_id=script_id))
+    
+    if request.method == 'GET':
+        # Show upload form
+        return render_template('bulk_generate.html', script=script, form_fields=form_fields)
+    
+    # Handle POST - process uploaded CSV
+    if 'csv_file' not in request.files:
+        flash('No file uploaded', 'error')
+        return redirect(request.url)
+    
+    file = request.files['csv_file']
+    if file.filename == '':
+        flash('No file selected', 'error')
+        return redirect(request.url)
+    
+    if not file.filename.lower().endswith('.csv'):
+        flash('Please upload a CSV file', 'error')
+        return redirect(request.url)
+    
+    try:
+        import csv
+        import uuid
+        import json
+        from jinja2 import Environment, TemplateSyntaxError
+        
+        # Generate batch ID for this upload
+        batch_id = str(uuid.uuid4())[:8]
+        
+        # Read and parse CSV
+        csv_content = file.read().decode('utf-8')
+        csv_reader = csv.DictReader(csv_content.splitlines())
+        
+        # Get expected field names
+        expected_fields = [field.name for field in form_fields]
+        
+        # Validate CSV headers
+        csv_headers = csv_reader.fieldnames
+        if not csv_headers:
+            flash('CSV file appears to be empty', 'error')
+            return redirect(request.url)
+        
+        missing_fields = set(expected_fields) - set(csv_headers)
+        if missing_fields:
+            flash(f'CSV is missing required columns: {", ".join(missing_fields)}', 'error')
+            return redirect(request.url)
+        
+        # Process each row
+        generated_count = 0
+        error_count = 0
+        env = Environment()
+        
+        for row_num, row in enumerate(csv_reader, start=2):  # Start at 2 because header is row 1
+            try:
+                # Skip empty rows
+                if not any(row.values()):
+                    continue
+                
+                # Prepare form data
+                form_data = {}
+                for field in form_fields:
+                    value = row.get(field.name, '').strip()
+                    form_data[field.name] = value
+                
+                # Generate script content using template
+                jinja_template = env.from_string(script.template.content)
+                generated_content = jinja_template.render(**form_data)
+                
+                # Create name for generated script (use first few fields or row number)
+                name_parts = []
+                for field in form_fields[:3]:  # Use first 3 fields for name
+                    value = form_data.get(field.name, '').strip()
+                    if value:
+                        name_parts.append(value[:20])  # Limit length
+                
+                if name_parts:
+                    generated_name = f"{script.name} - {' '.join(name_parts)}"
+                else:
+                    generated_name = f"{script.name} - Row {row_num}"
+                
+                # Save generated script
+                generated_script = GeneratedScript(
+                    original_script_id=script_id,
+                    user_id=current_user.id,
+                    name=generated_name[:200],  # Limit to DB field size
+                    generated_content=generated_content,
+                    csv_row_data=json.dumps(form_data),
+                    batch_id=batch_id
+                )
+                db.session.add(generated_script)
+                generated_count += 1
+                
+            except Exception as e:
+                app.logger.error(f"Error processing CSV row {row_num}: {str(e)}")
+                error_count += 1
+                continue
+        
+        if generated_count > 0:
+            db.session.commit()
+            flash(f'Successfully generated {generated_count} scripts', 'success')
+            if error_count > 0:
+                flash(f'{error_count} rows had errors and were skipped', 'warning')
+        else:
+            flash('No scripts were generated. Please check your CSV file.', 'error')
+        
+        return redirect(url_for('list_generated_scripts'))
+        
+    except Exception as e:
+        app.logger.error(f"Error processing CSV upload: {str(e)}")
+        flash(f'Error processing CSV file: {str(e)}', 'error')
+        return redirect(request.url)
+
+@app.route('/generated-scripts')
+@login_required
+def list_generated_scripts():
+    """List all generated scripts for the current user"""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    sort_by = request.args.get('sort', 'created_at')
+    order = request.args.get('order', 'desc')
+    search_query = request.args.get('search', '').strip()
+    
+    # Build query
+    query = GeneratedScript.query.filter_by(user_id=current_user.id)
+    
+    # Add search functionality
+    if search_query:
+        search_pattern = f'%{search_query}%'
+        query = query.filter(
+            db.or_(
+                GeneratedScript.name.ilike(search_pattern),
+                GeneratedScript.batch_id.ilike(search_pattern)
+            )
+        )
+    
+    # Apply sorting
+    valid_sort_columns = {
+        'name': GeneratedScript.name,
+        'batch': GeneratedScript.batch_id,
+        'batch_id': GeneratedScript.batch_id,  # alias
+        'created_at': GeneratedScript.created_at,
+        'created': GeneratedScript.created_at,  # alias for frontend
+        'modified_at': GeneratedScript.modified_at,
+        'modified': GeneratedScript.modified_at,  # alias for frontend
+    }
+    
+    sort_column = valid_sort_columns.get(sort_by, GeneratedScript.created_at)
+    if order == 'desc':
+        query = query.order_by(sort_column.desc())
+    else:
+        query = query.order_by(sort_column.asc())
+    
+    # Paginate
+    pagination = query.paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False
+    )
+    
+    generated_scripts = pagination.items
+    
+    return render_template('generated_scripts.html', 
+                         generated_scripts=generated_scripts,
+                         pagination=pagination,
+                         search_query=search_query,
+                         per_page=per_page,
+                         current_sort=sort_by,
+                         current_order=order)
+
+@app.route('/generated-scripts/<int:generated_id>/view')
+@login_required
+def view_generated_script(generated_id):
+    """View a generated script"""
+    generated_script = GeneratedScript.query.filter_by(
+        id=generated_id, 
+        user_id=current_user.id
+    ).first_or_404()
+    
+    return render_template('view_generated_script.html', 
+                         generated_script=generated_script)
+
+@app.route('/generated-scripts/<int:generated_id>/download')
+@login_required
+def download_generated_script(generated_id):
+    """Download a generated script"""
+    generated_script = GeneratedScript.query.filter_by(
+        id=generated_id, 
+        user_id=current_user.id
+    ).first_or_404()
+    
+    from flask import Response
+    response = Response(generated_script.generated_content, mimetype='text/plain')
+    safe_filename = generated_script.name.replace(' ', '_').replace('/', '-')
+    response.headers['Content-Disposition'] = f'attachment; filename="{safe_filename}.txt"'
+    
+    return response
+
+@app.route('/generated-scripts/<int:generated_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_generated_script(generated_id):
+    """Edit a generated script"""
+    generated_script = GeneratedScript.query.filter_by(
+        id=generated_id, 
+        user_id=current_user.id
+    ).first_or_404()
+    
+    if request.method == 'POST':
+        generated_script.name = request.form.get('name', '').strip()
+        generated_script.generated_content = request.form.get('content', '')
+        generated_script.modified_at = datetime.utcnow()
+        
+        db.session.commit()
+        flash('Generated script updated successfully', 'success')
+        return redirect(url_for('view_generated_script', generated_id=generated_id))
+    
+    return render_template('edit_generated_script.html', 
+                         generated_script=generated_script)
+
+@app.route('/generated-scripts/<int:generated_id>/delete', methods=['POST'])
+@login_required
+def delete_generated_script(generated_id):
+    """Delete a generated script"""
+    generated_script = GeneratedScript.query.filter_by(
+        id=generated_id, 
+        user_id=current_user.id
+    ).first_or_404()
+    
+    name = generated_script.name
+    db.session.delete(generated_script)
+    db.session.commit()
+    
+    flash(f'Generated script "{name}" deleted successfully', 'success')
+    return redirect(url_for('list_generated_scripts'))
+
 @app.route('/scripts/<int:script_id>/preview', methods=['GET'])
 def preview_output(script_id):
     script = Script.query.filter_by(id=script_id, status='active').first_or_404()
@@ -500,7 +967,7 @@ def download_submission(script_id, submission_id):
         response = make_response(submission.output)
         response.headers['Content-Type'] = 'text/html'
         response.headers['Content-Disposition'] = f'attachment; filename=script_{script_id}_{submission_id}.html'
-    elif script.template.output_format == 'text':
+    elif script.template.output_format in ['text', 'Plain Text']:
         response = make_response(submission.output)
         response.headers['Content-Type'] = 'text/plain'
         response.headers['Content-Disposition'] = f'attachment; filename=script_{script_id}_{submission_id}.txt'
@@ -576,6 +1043,101 @@ def detect_variables(script_id):
         app.logger.error(f"Error in detect_variables: {str(e)}", exc_info=True)
         return jsonify({'error': f'Error detecting variables: {str(e)}'}), 500
 
+@app.route('/api/scripts/<int:script_id>/save_template_for_fields', methods=['POST'])
+@login_required
+def save_template_for_fields(script_id):
+    """Save template without undefined variable validation - used when adding fields"""
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': 'Access denied'})
+    
+    script = Script.query.get_or_404(script_id)
+    template = script.template
+    
+    data = request.json
+    template_content = data.get('template_content', '')
+    script_name = data.get('name', script.name)
+    script_status = data.get('status', script.status)
+    output_format = data.get('output_format', template.output_format if template else 'text')
+    
+    try:
+        from jinja2 import Environment, TemplateSyntaxError
+        env = Environment()
+        
+        # Only check for syntax errors, not undefined variables
+        try:
+            env.parse(template_content)
+        except TemplateSyntaxError as e:
+            return jsonify({
+                'success': False, 
+                'error': f'Template syntax error at line {e.lineno}: {str(e)}'
+            })
+        
+        # Update script properties
+        script.name = script_name
+        script.status = script_status
+        
+        # Save template content
+        if template:
+            template.content = template_content
+            template.output_format = output_format
+        else:
+            # Create new template if it doesn't exist
+            template = Template(
+                script_id=script_id,
+                content=template_content,
+                output_format=output_format,
+                version=1
+            )
+            db.session.add(template)
+        
+        db.session.commit()
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/scripts/<int:script_id>/validate_template', methods=['POST'])
+@login_required
+def validate_template(script_id):
+    """Validate Jinja2 template syntax"""
+    if not current_user.is_admin:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    if not request.is_json:
+        return jsonify({'error': 'Expected JSON data'}), 400
+    
+    try:
+        data = request.get_json()
+        template_content = data.get('template_content', '')
+        
+        # Try to compile the template to check for syntax errors
+        from jinja2 import Environment, TemplateSyntaxError
+        env = Environment()
+        
+        try:
+            # Attempt to compile the template
+            env.parse(template_content)
+            return jsonify({
+                'valid': True,
+                'message': 'Template syntax is valid'
+            })
+        except TemplateSyntaxError as e:
+            # Extract useful error information
+            error_message = str(e)
+            line_number = e.lineno if hasattr(e, 'lineno') else None
+            
+            return jsonify({
+                'valid': False,
+                'error': error_message,
+                'line': line_number,
+                'message': f'Syntax error at line {line_number}: {error_message}' if line_number else f'Syntax error: {error_message}'
+            })
+            
+    except Exception as e:
+        app.logger.error(f"Error in validate_template: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Error validating template: {str(e)}'}), 500
+
 @app.route('/api/scripts/<int:script_id>/add_variable_field', methods=['POST'])
 @login_required
 def add_variable_field(script_id):
@@ -628,6 +1190,18 @@ def delete_field(script_id, field_id):
         return jsonify({'success': False, 'error': 'Invalid field ID'}), 400
     
     try:
+        # Track field deletion
+        change = ScriptChange(
+            script_id=script_id,
+            user_id=current_user.id,
+            change_type='field_delete',
+            field_name=field.name,
+            old_value=f'{field.label} ({field.field_type})',
+            new_value='',
+            description=f'Deleted field "{field.name}"'
+        )
+        db.session.add(change)
+        
         db.session.delete(field)
         db.session.commit()
         return jsonify({'success': True})
@@ -698,6 +1272,19 @@ def create_field_api(script_id):
         )
         
         db.session.add(field)
+        
+        # Track field creation
+        change = ScriptChange(
+            script_id=script_id,
+            user_id=current_user.id,
+            change_type='field_add',
+            field_name=field.name,
+            old_value='',
+            new_value=f'{field.label} ({field.field_type})',
+            description=f'Added new field "{field.name}"'
+        )
+        db.session.add(change)
+        
         db.session.commit()
         
         return jsonify({'success': True, 'field_id': field.id})
@@ -733,6 +1320,49 @@ def update_field_api(script_id, field_id):
         return jsonify({'success': False, 'error': f'Field "{data.get("name")}" already exists'})
     
     try:
+        # Track changes for each field
+        changes_made = []
+        
+        if field.name != data.get('name'):
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='field_edit',
+                field_name=field.name,
+                old_value=field.name,
+                new_value=data.get('name'),
+                description=f'Changed field name from "{field.name}" to "{data.get("name")}"'
+            )
+            db.session.add(change)
+            changes_made.append('name')
+        
+        if field.label != data.get('label'):
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='field_edit',
+                field_name=field.name,
+                old_value=field.label,
+                new_value=data.get('label'),
+                description=f'Changed field label for "{field.name}"'
+            )
+            db.session.add(change)
+            changes_made.append('label')
+        
+        if field.field_type != data.get('field_type', 'text'):
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='field_edit',
+                field_name=field.name,
+                old_value=field.field_type,
+                new_value=data.get('field_type', 'text'),
+                description=f'Changed field type for "{field.name}"'
+            )
+            db.session.add(change)
+            changes_made.append('field_type')
+        
+        # Update field values
         field.name = data.get('name')
         field.label = data.get('label')
         field.field_type = data.get('field_type', 'text')
@@ -953,6 +1583,19 @@ def migrate_database():
                 
                 with db.engine.connect() as conn:
                     conn.execute(db.text("UPDATE schema_version SET version = 3"))
+                    conn.commit()
+            
+            if current_version < 4:
+                migration_log.append("Applying migration v4: Adding script_instructions to script")
+                try:
+                    with db.engine.connect() as conn:
+                        conn.execute(db.text("ALTER TABLE script ADD COLUMN script_instructions TEXT"))
+                        conn.commit()
+                except Exception as e:
+                    migration_log.append(f"Column script_instructions might already exist: {str(e)}")
+                
+                with db.engine.connect() as conn:
+                    conn.execute(db.text("UPDATE schema_version SET version = 4"))
                     conn.commit()
             
             # Get the new version
@@ -1295,8 +1938,52 @@ def admin_scripts():
         flash('You do not have permission to access this page.')
         return redirect(url_for('index'))
     
-    scripts = Script.query.all()
-    return render_template('admin/manage_scripts.html', scripts=scripts)
+    # Get sorting and search parameters
+    sort_by = request.args.get('sort', 'created_at')
+    order = request.args.get('order', 'desc')
+    search_query = request.args.get('search', '').strip()
+    
+    # Build query
+    query = Script.query
+    
+    # Add search functionality
+    if search_query:
+        search_pattern = f'%{search_query}%'
+        query = query.filter(Script.name.ilike(search_pattern))
+    
+    # Apply sorting
+    valid_sort_columns = {
+        'name': Script.name,
+        'status': Script.status,
+        'created_at': Script.created_at,
+        'created': Script.created_at  # alias for frontend
+    }
+    
+    sort_column = valid_sort_columns.get(sort_by, Script.created_at)
+    if order == 'desc':
+        query = query.order_by(sort_column.desc())
+    else:
+        query = query.order_by(sort_column.asc())
+    
+    scripts = query.all()
+    
+    # Prepare scripts data with form fields
+    scripts_data = []
+    for script in scripts:
+        form_fields = FormField.query.filter_by(script_id=script.id).order_by(FormField.display_order).all()
+        field_names = [field.label or field.name for field in form_fields]
+        
+        script_info = {
+            'script': script,
+            'form_fields': field_names
+        }
+        scripts_data.append(script_info)
+    
+    return render_template('admin/manage_scripts.html', 
+                         scripts_data=scripts_data,
+                         current_sort=sort_by,
+                         current_order=order,
+                         search_query=search_query)
 
 # Add the missing delete_script route
 @app.route('/admin/scripts/<int:script_id>/delete', methods=['POST'])
@@ -1318,6 +2005,150 @@ def delete_script(script_id):
         flash(f'Error deleting script: {str(e)}', 'error')
     
     return redirect(url_for('admin_scripts'))
+
+@app.route('/admin/scripts/<int:script_id>/history')
+@login_required
+def script_history(script_id):
+    if not current_user.is_admin:
+        flash('Access denied: Admin privileges required')
+        return redirect(url_for('index'))
+    
+    script = Script.query.get_or_404(script_id)
+    
+    # Get pagination parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 20, type=int)
+    
+    # Get search parameters
+    search_query = request.args.get('search', '').strip()
+    change_type_filter = request.args.get('type', '')
+    
+    # Build the query
+    query = ScriptChange.query.filter_by(script_id=script_id)
+    
+    # Apply search filter if provided
+    if search_query:
+        search_pattern = f'%{search_query}%'
+        query = query.filter(
+            db.or_(
+                ScriptChange.description.ilike(search_pattern),
+                ScriptChange.field_name.ilike(search_pattern),
+                ScriptChange.old_value.ilike(search_pattern),
+                ScriptChange.new_value.ilike(search_pattern)
+            )
+        )
+    
+    # Apply type filter if provided
+    if change_type_filter:
+        query = query.filter_by(change_type=change_type_filter)
+    
+    # Order by date (newest first) and paginate
+    pagination = query.order_by(ScriptChange.change_date.desc()).paginate(
+        page=page,
+        per_page=per_page,
+        error_out=False
+    )
+    
+    changes = pagination.items
+    
+    # Process changes to generate diffs for template changes
+    for change in changes:
+        if change.change_type == 'template_edit' and change.field_name == 'content':
+            # Generate a line-by-line diff
+            change.diff = generate_diff(change.old_value or '', change.new_value or '')
+    
+    # Get unique change types for filter dropdown
+    all_change_types = db.session.query(ScriptChange.change_type).filter_by(script_id=script_id).distinct().all()
+    change_types = [ct[0] for ct in all_change_types]
+    
+    return render_template('admin/script_history.html', 
+                         script=script,
+                         changes=changes,
+                         pagination=pagination,
+                         search_query=search_query,
+                         change_type_filter=change_type_filter,
+                         change_types=change_types,
+                         per_page=per_page)
+
+def generate_diff(old_text, new_text):
+    """Generate a unified diff with line numbers and +/- signs"""
+    old_lines = old_text.splitlines(keepends=True)
+    new_lines = new_text.splitlines(keepends=True)
+    
+    # Generate unified diff
+    diff = difflib.unified_diff(
+        old_lines,
+        new_lines,
+        fromfile='Previous Version',
+        tofile='Current Version',
+        lineterm=''
+    )
+    
+    diff_lines = []
+    for line in diff:
+        if line.startswith('+++') or line.startswith('---'):
+            # Skip file headers
+            continue
+        elif line.startswith('@@'):
+            # Format hunk header
+            diff_lines.append({'type': 'header', 'content': line})
+        elif line.startswith('+'):
+            # Added line
+            diff_lines.append({'type': 'add', 'content': line[1:]})
+        elif line.startswith('-'):
+            # Removed line
+            diff_lines.append({'type': 'delete', 'content': line[1:]})
+        elif line.startswith(' '):
+            # Context line (unchanged)
+            diff_lines.append({'type': 'context', 'content': line[1:]})
+        else:
+            # Other lines (shouldn't happen in unified diff, but just in case)
+            diff_lines.append({'type': 'context', 'content': line})
+    
+    return diff_lines
+
+@app.route('/admin/scripts/<int:script_id>/export-template')
+@login_required
+def export_template(script_id):
+    if not current_user.is_admin:
+        flash('Access denied: Admin privileges required')
+        return redirect(url_for('index'))
+    
+    script = Script.query.get_or_404(script_id)
+    template = Template.query.filter_by(script_id=script_id).first()
+    
+    if not template:
+        flash('No template found for this script')
+        return redirect(url_for('admin_scripts'))
+    
+    # Get all form fields to list as variables
+    form_fields = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order).all()
+    
+    # Prepare the export content with variables at the top
+    export_content = ""
+    
+    # Add variable list at the top as comments
+    if form_fields:
+        export_content += "# Template Variables\n"
+        export_content += "# ==================\n"
+        for field in form_fields:
+            variable_name = field.name
+            export_content += f"# {variable_name} - {{{{ {variable_name} }}}}\n"
+        export_content += "\n"
+    
+    # Add the actual template content
+    export_content += template.content
+    
+    # Create response with proper headers for file download
+    response = Response(
+        export_content,
+        mimetype="text/plain",
+        headers={
+            "Content-Disposition": f"attachment; filename={script.name.replace(' ', '_')}_template.txt"
+        }
+    )
+    
+    return response
 
 if __name__ == '__main__':
     app.run(debug=True)

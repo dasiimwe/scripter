@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block title %}Bulk Generate Scripts - {{ script.name }}{% endblock %}
+
+{% block content %}
+<!-- Breadcrumbs -->
+<nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+        <li><a href="{{ url_for('index') }}">Home</a></li>
+        <li><a href="{{ url_for('view_script', script_id=script.id) }}">{{ script.name }}</a></li>
+        <li class="is-active"><a href="#" aria-current="page">Bulk Generate</a></li>
+    </ul>
+</nav>
+
+<div class="container">
+    <div class="columns">
+        <div class="column is-8 is-offset-2">
+            
+            <div class="box">
+                <h2 class="title is-4">Upload CSV to Generate Multiple Scripts</h2>
+                <p class="subtitle">Upload a CSV file with data to generate multiple scripts using the "{{ script.name }}" template.</p>
+                
+                <div class="notification is-info is-light">
+                    <p><strong>Instructions:</strong></p>
+                    <ol>
+                        <li>Download the CSV template first to get the correct column headers</li>
+                        <li>Fill in your data in the CSV file (one row per script to generate)</li>
+                        <li>Upload the completed CSV file below</li>
+                    </ol>
+                </div>
+                
+                <!-- CSV Template Download -->
+                <div class="field">
+                    <label class="label">Step 1: Download CSV Template</label>
+                    <div class="control">
+                        <a href="{{ url_for('download_csv_template', script_id=script.id) }}" class="button is-link">
+                            <span class="icon">
+                                <i class="fas fa-download"></i>
+                            </span>
+                            <span>Download CSV Template</span>
+                        </a>
+                    </div>
+                    <p class="help">Download a template CSV file with the correct column headers for this script.</p>
+                </div>
+                
+                <hr>
+                
+                <!-- Expected Fields -->
+                <div class="field">
+                    <label class="label">Expected CSV Columns:</label>
+                    <div class="tags">
+                        {% for field in form_fields %}
+                        <span class="tag is-info">{{ field.name }}</span>
+                        {% endfor %}
+                    </div>
+                    <p class="help">Your CSV file should have these column headers (case-sensitive).</p>
+                </div>
+                
+                <hr>
+                
+                <!-- CSV Upload Form -->
+                <form method="POST" enctype="multipart/form-data">
+                    <div class="field">
+                        <label class="label">Step 2: Upload Completed CSV</label>
+                        <div class="control">
+                            <div class="file has-name is-boxed">
+                                <label class="file-label">
+                                    <input class="file-input" type="file" name="csv_file" accept=".csv" required>
+                                    <span class="file-cta">
+                                        <span class="file-icon">
+                                            <i class="fas fa-upload"></i>
+                                        </span>
+                                        <span class="file-label">
+                                            Choose CSV file...
+                                        </span>
+                                    </span>
+                                    <span class="file-name">
+                                        No file selected
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+                        <p class="help">Select the CSV file with your data. Each row will generate one script.</p>
+                    </div>
+                    
+                    <div class="field is-grouped">
+                        <div class="control">
+                            <button type="submit" class="button is-primary">
+                                <span class="icon">
+                                    <i class="fas fa-cogs"></i>
+                                </span>
+                                <span>Generate Scripts</span>
+                            </button>
+                        </div>
+                        <div class="control">
+                            <a href="{{ url_for('view_script', script_id=script.id) }}" class="button is-light">
+                                Cancel
+                            </a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // File input handling
+    const fileInput = document.querySelector('.file-input');
+    const fileName = document.querySelector('.file-name');
+    
+    fileInput.addEventListener('change', function() {
+        if (this.files && this.files[0]) {
+            fileName.textContent = this.files[0].name;
+        } else {
+            fileName.textContent = 'No file selected';
+        }
+    });
+});
+</script>
+{% endblock %}

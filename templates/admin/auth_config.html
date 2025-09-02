@@ -4,6 +4,15 @@
 
 {% block content %}
 <div class="container">
+    <!-- Breadcrumbs -->
+    <nav class="breadcrumb" aria-label="breadcrumbs">
+        <ul>
+            <li><a href="{{ url_for('index') }}">Home</a></li>
+            <li><a href="{{ url_for('admin_users') }}">Users</a></li>
+            <li class="is-active"><a href="#" aria-current="page">Authentication Settings</a></li>
+        </ul>
+    </nav>
+    
     <h1 class="title">Authentication Configuration</h1>
     <p class="subtitle">Configure system authentication methods</p>
     

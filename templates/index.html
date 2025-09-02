@@ -29,6 +29,16 @@
         overflow: hidden;
         text-overflow: ellipsis;
     }
+    .form-fields-list {
+        max-width: 300px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .field-tag {
+        font-size: 0.75rem;
+        margin: 0.1rem;
+    }
     .empty-state {
         text-align: center;
         padding: 3rem 1rem;
@@ -38,29 +48,140 @@
         margin-bottom: 1rem;
         color: #dbdbdb;
     }
+    /* Splash page styling */
+    .splash-box {
+        background: linear-gradient(135deg, #f5f5f5 0%, #fafafa 100%);
+        border: 1px solid #e8e8e8;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    .splash-box .title.is-2 {
+        margin-bottom: 0.5rem;
+    }
+    .splash-box .icon-text .icon {
+        vertical-align: middle;
+    }
+    .how-to-steps {
+        counter-reset: step-counter;
+    }
+    .how-to-steps li {
+        margin-bottom: 1rem;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container">
-       
-    <div class="search-container">
-        <div class="field has-addons">
-            <div class="control is-expanded">
-                <input class="input" type="text" id="search-input" placeholder="Search scripts by name, description, or tags...">
-            </div>
-            <div class="control">
-                <button class="button is-info" id="search-button">
+    <!-- Splash Page Section -->
+    <div class="box splash-box mb-5">
+        <div class="content">
+            <h1 class="title is-2 has-text-centered has-text-primary">
+                <span class="icon-text">
                     <span class="icon">
-                        <i class="fas fa-search"></i>
+                        <i class="fas fa-file-code"></i>
                     </span>
-                    <span>Search</span>
-                </button>
+                    <span>Welcome to Scripter</span>
+                </span>
+            </h1>
+            
+            <p class="subtitle has-text-centered is-5">
+                Generate customized configuration scripts and documents with ease
+            </p>
+            
+            <div class="columns mt-5">
+                <div class="column is-half">
+                    <h3 class="title is-4 has-text-primary">
+                        <span class="icon-text">
+                            <span class="icon">
+                                <i class="fas fa-info-circle"></i>
+                            </span>
+                            <span>About Scripter</span>
+                        </span>
+                    </h3>
+                    <p>
+                        Scripter is a powerful web application that enables you to create and manage 
+                        customizable script templates. Whether you're configuring network devices, 
+                        generating deployment scripts, or creating documentation, Scripter streamlines 
+                        your workflow by providing form-based input for dynamic script generation.
+                    </p>
+                    <div class="mt-3">
+                        <strong>Key Features:</strong>
+                        <ul>
+                            <li>Dynamic form generation from templates</li>
+                            <li>Support for multiple script types and formats</li>
+                            <li>IP address calculation and helper tools</li>
+                            <li>Syntax highlighting for various languages</li>
+                            <li>Bulk script generation via CSV upload</li>
+                            <li>Version history and change tracking</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="column is-half">
+                    <h3 class="title is-4 has-text-primary">
+                        <span class="icon-text">
+                            <span class="icon">
+                                <i class="fas fa-rocket"></i>
+                            </span>
+                            <span>How to Use</span>
+                        </span>
+                    </h3>
+                    <div class="content">
+                        <ol>
+                            <li>
+                                <strong>Browse Available Scripts</strong><br>
+                                Use the search bar below to find scripts or browse the table
+                            </li>
+                            <li>
+                                <strong>Click "Use" on Your Desired Script</strong><br>
+                                This opens the form for that specific script template
+                            </li>
+                            <li>
+                                <strong>Fill Out the Form</strong><br>
+                                Complete all required fields. Use the IP Helper for network addresses
+                            </li>
+                            <li>
+                                <strong>Preview Your Script</strong><br>
+                                Review the generated output before saving
+                            </li>
+                            <li>
+                                <strong>Generate and Download</strong><br>
+                                Save your customized script locally or to the system
+                            </li>
+                        </ol>
+                        
+                        <div class="notification is-info is-light mt-4">
+                            <p>
+                                <strong>Pro Tip:</strong> Check "Generated Scripts" in the navigation 
+                                to view and manage all your previously created scripts.
+                            </p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
     
-    {% if scripts %}
+    <div class="search-container">
+        <div class="columns">
+            <div class="column is-half">
+                <div class="field has-addons">
+                    <div class="control is-expanded">
+                        <input class="input" type="text" id="search-input" placeholder="Search scripts by name, description, or tags...">
+                    </div>
+                    <div class="control">
+                        <button class="button is-info" id="search-button">
+                            <span class="icon">
+                                <i class="fas fa-search"></i>
+                            </span>
+                            <span>Search</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {% if scripts_data %}
     <div class="table-container">
         <table class="table is-fullwidth is-striped is-hoverable">
             <thead>
@@ -68,6 +189,12 @@
                     <th>
                         Name
                         <span class="icon sort-icon" data-sort="name">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Form Fields
+                        <span class="icon sort-icon" data-sort="fields">
                             <i class="fas fa-sort"></i>
                         </span>
                     </th>
@@ -81,11 +208,24 @@
                 </tr>
             </thead>
             <tbody id="scripts-table-body">
-                {% for script in scripts %}
+                {% for script_data in scripts_data %}
+                {% set script = script_data.script %}
                 <tr class="script-row" 
                     data-name="{{ script.name|lower }}" 
-                    data-created="{{ script.created_at.strftime('%Y-%m-%d') }}">
+                    data-created="{{ script.created_at.strftime('%Y-%m-%d') }}"
+                    data-fields="{{ script_data.form_fields|join(', ')|lower }}">
                     <td>{{ script.name }}</td>
+                    <td>
+                        <div class="form-fields-list">
+                            {% if script_data.form_fields %}
+                                {% for field in script_data.form_fields %}
+                                    <span class="tag is-light field-tag">{{ field }}</span>
+                                {% endfor %}
+                            {% else %}
+                                <span class="has-text-grey is-italic">No fields defined</span>
+                            {% endif %}
+                        </div>
+                    </td>
                     <td>{{ script.created_at.strftime('%Y-%m-%d') }}</td>
                     <td>
                         <a href="{{ url_for('view_script', script_id=script.id) }}" class="button is-small is-primary">
@@ -162,16 +302,18 @@ document.addEventListener('DOMContentLoaded', function() {
         
         scriptRows.forEach(row => {
             const name = row.getAttribute('data-name');
-            const description = row.getAttribute('data-description');
-            const category = row.getAttribute('data-category');
-            const tags = row.getAttribute('data-tags');
+            const description = row.getAttribute('data-description') || '';
+            const category = row.getAttribute('data-category') || '';
+            const tags = row.getAttribute('data-tags') || '';
+            const fields = row.getAttribute('data-fields') || '';
             
             // Check if any field contains the search term
             const matches = 
                 name.includes(searchTerm) || 
                 description.includes(searchTerm) || 
                 category.includes(searchTerm) || 
-                tags.includes(searchTerm);
+                tags.includes(searchTerm) ||
+                fields.includes(searchTerm);
             
             // Set display property based on match
             row.classList.toggle('is-hidden', !matches);
@@ -208,11 +350,13 @@ document.addEventListener('DOMContentLoaded', function() {
             // Update sort icons
             sortIcons.forEach(i => {
                 const iconElement = i.querySelector('i');
-                if (i.getAttribute('data-sort') === column) {
-                    iconElement.className = currentSort.direction === 'asc' ? 
-                        'fas fa-sort-up' : 'fas fa-sort-down';
-                } else {
-                    iconElement.className = 'fas fa-sort';
+                if (iconElement) {
+                    if (i.getAttribute('data-sort') === column) {
+                        iconElement.className = currentSort.direction === 'asc' ? 
+                            'fas fa-sort-up' : 'fas fa-sort-down';
+                    } else {
+                        iconElement.className = 'fas fa-sort';
+                    }
                 }
             });
             
@@ -236,11 +380,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 valueA = a.getAttribute('data-name');
                 valueB = b.getAttribute('data-name');
             } else if (column === 'description') {
-                valueA = a.getAttribute('data-description');
-                valueB = b.getAttribute('data-description');
+                valueA = a.getAttribute('data-description') || '';
+                valueB = b.getAttribute('data-description') || '';
             } else if (column === 'category') {
-                valueA = a.getAttribute('data-category');
-                valueB = b.getAttribute('data-category');
+                valueA = a.getAttribute('data-category') || '';
+                valueB = b.getAttribute('data-category') || '';
+            } else if (column === 'fields') {
+                valueA = a.getAttribute('data-fields') || '';
+                valueB = b.getAttribute('data-fields') || '';
             } else if (column === 'created_at') {
                 valueA = a.getAttribute('data-created');
                 valueB = b.getAttribute('data-created');

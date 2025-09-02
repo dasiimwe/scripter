@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+
+{% block title %}Script History - {{ script.name }}{% endblock %}
+
+{% block content %}
+<section class="section">
+    <div class="container">
+        <nav class="breadcrumb" aria-label="breadcrumbs">
+            <ul>
+                <li><a href="{{ url_for('index') }}">Home</a></li>
+                <li><a href="{{ url_for('admin_scripts') }}">Scripts</a></li>
+                <li><a href="{{ url_for('edit_script', script_id=script.id) }}">{{ script.name }}</a></li>
+                <li class="is-active"><a href="#" aria-current="page">History</a></li>
+            </ul>
+        </nav>
+
+        <h1 class="title">
+            Change History for "{{ script.name }}"
+        </h1>
+
+        <div class="buttons">
+            <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-link">
+                <span class="icon">
+                    <i class="fas fa-arrow-left"></i>
+                </span>
+                <span>Back to Script</span>
+            </a>
+        </div>
+
+        <!-- Search and Filter Section -->
+        <div class="box">
+            <form method="GET" action="{{ url_for('script_history', script_id=script.id) }}">
+                <div class="columns">
+                    <div class="column is-6">
+                        <div class="field">
+                            <label class="label">Search</label>
+                            <div class="control has-icons-left">
+                                <input class="input" type="text" name="search" placeholder="Search in descriptions, fields, or values..." value="{{ search_query }}">
+                                <span class="icon is-small is-left">
+                                    <i class="fas fa-search"></i>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column is-3">
+                        <div class="field">
+                            <label class="label">Change Type</label>
+                            <div class="control">
+                                <div class="select is-fullwidth">
+                                    <select name="type">
+                                        <option value="">All Types</option>
+                                        {% for ct in change_types %}
+                                        <option value="{{ ct }}" {% if ct == change_type_filter %}selected{% endif %}>
+                                            {{ ct.replace('_', ' ').title() }}
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column is-2">
+                        <div class="field">
+                            <label class="label">Per Page</label>
+                            <div class="control">
+                                <div class="select is-fullwidth">
+                                    <select name="per_page">
+                                        <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
+                                        <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+                                        <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                                        <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="column is-1">
+                        <div class="field">
+                            <label class="label">&nbsp;</label>
+                            <div class="control">
+                                <button type="submit" class="button is-primary is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-filter"></i>
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% if search_query or change_type_filter %}
+                <div class="field">
+                    <a href="{{ url_for('script_history', script_id=script.id) }}" class="button is-small is-light">
+                        <span class="icon">
+                            <i class="fas fa-times"></i>
+                        </span>
+                        <span>Clear Filters</span>
+                    </a>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+
+        <!-- Results Summary -->
+        {% if search_query or change_type_filter %}
+        <div class="notification is-info is-light">
+            <p>
+                Found <strong>{{ pagination.total }}</strong> change{{ 's' if pagination.total != 1 else '' }}
+                {% if search_query %}
+                    matching "<strong>{{ search_query }}</strong>"
+                {% endif %}
+                {% if change_type_filter %}
+                    {% if search_query %}with{% else %}of{% endif %} type "<strong>{{ change_type_filter.replace('_', ' ').title() }}</strong>"
+                {% endif %}
+            </p>
+        </div>
+        {% endif %}
+
+        {% if changes %}
+            <div class="timeline">
+                {% for change in changes %}
+                <div class="card mb-4">
+                    <div class="card-content">
+                        <div class="columns">
+                            <div class="column is-narrow">
+                                <span class="tag 
+                                    {% if change.change_type == 'script_edit' %}is-info
+                                    {% elif change.change_type == 'template_edit' %}is-primary
+                                    {% elif change.change_type == 'field_add' %}is-success
+                                    {% elif change.change_type == 'field_edit' %}is-warning
+                                    {% elif change.change_type == 'field_delete' %}is-danger
+                                    {% endif %}">
+                                    {{ change.change_type.replace('_', ' ').title() }}
+                                </span>
+                            </div>
+                            <div class="column">
+                                <p class="has-text-weight-semibold">{{ change.description }}</p>
+                                <p class="is-size-7 has-text-grey">
+                                    <span class="icon is-small">
+                                        <i class="fas fa-user"></i>
+                                    </span>
+                                    {{ change.user.username }}
+                                    <span class="mx-2">•</span>
+                                    <span class="icon is-small">
+                                        <i class="fas fa-clock"></i>
+                                    </span>
+                                    {{ change.change_date.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+                                </p>
+
+                                {% if change.field_name and change.field_name != 'content' %}
+                                <div class="mt-2">
+                                    <span class="has-text-weight-semibold">Field:</span> {{ change.field_name }}
+                                </div>
+                                {% endif %}
+
+                                <!-- Show diff for template content changes -->
+                                {% if change.change_type == 'template_edit' and change.field_name == 'content' and change.diff %}
+                                <div class="mt-3">
+                                    <details>
+                                        <summary class="button is-small is-outlined">
+                                            <span class="icon">
+                                                <i class="fas fa-code-branch"></i>
+                                            </span>
+                                            <span>View Diff</span>
+                                        </summary>
+                                        <div class="diff-container mt-3">
+                                            <pre class="diff-view">{% for line in change.diff %}{% if line.type == 'header' %}<span class="diff-header">{{ line.content }}</span>
+{% elif line.type == 'add' %}<span class="diff-add">+ {{ line.content }}</span>
+{% elif line.type == 'delete' %}<span class="diff-delete">- {{ line.content }}</span>
+{% else %}<span class="diff-context">  {{ line.content }}</span>
+{% endif %}{% endfor %}</pre>
+                                        </div>
+                                    </details>
+                                </div>
+                                {% endif %}
+
+                                <!-- Show simple before/after for non-content changes -->
+                                {% if change.old_value and change.new_value and change.field_name != 'content' %}
+                                <div class="mt-3 columns is-size-7">
+                                    <div class="column">
+                                        <span class="has-text-weight-semibold">Before:</span>
+                                        <span class="has-text-danger">{{ change.old_value }}</span>
+                                    </div>
+                                    <div class="column">
+                                        <span class="has-text-weight-semibold">After:</span>
+                                        <span class="has-text-success">{{ change.new_value }}</span>
+                                    </div>
+                                </div>
+                                {% elif change.new_value and not change.old_value %}
+                                <div class="mt-3 is-size-7">
+                                    <span class="has-text-weight-semibold">Added:</span>
+                                    <span class="has-text-success">{{ change.new_value }}</span>
+                                </div>
+                                {% elif change.old_value and not change.new_value %}
+                                <div class="mt-3 is-size-7">
+                                    <span class="has-text-weight-semibold">Removed:</span>
+                                    <span class="has-text-danger">{{ change.old_value }}</span>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <!-- Pagination Controls -->
+            {% if pagination.pages > 1 %}
+            <nav class="pagination is-centered" role="navigation" aria-label="pagination">
+                {% if pagination.has_prev %}
+                <a href="{{ url_for('script_history', script_id=script.id, page=pagination.prev_num, search=search_query, type=change_type_filter, per_page=per_page) }}" class="pagination-previous">Previous</a>
+                {% else %}
+                <a class="pagination-previous" disabled>Previous</a>
+                {% endif %}
+                
+                {% if pagination.has_next %}
+                <a href="{{ url_for('script_history', script_id=script.id, page=pagination.next_num, search=search_query, type=change_type_filter, per_page=per_page) }}" class="pagination-next">Next</a>
+                {% else %}
+                <a class="pagination-next" disabled>Next</a>
+                {% endif %}
+                
+                <ul class="pagination-list">
+                    {% for page_num in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                        {% if page_num %}
+                            {% if page_num != pagination.page %}
+                            <li>
+                                <a href="{{ url_for('script_history', script_id=script.id, page=page_num, search=search_query, type=change_type_filter, per_page=per_page) }}" class="pagination-link">{{ page_num }}</a>
+                            </li>
+                            {% else %}
+                            <li>
+                                <a class="pagination-link is-current" aria-current="page">{{ page_num }}</a>
+                            </li>
+                            {% endif %}
+                        {% else %}
+                            <li><span class="pagination-ellipsis">&hellip;</span></li>
+                        {% endif %}
+                    {% endfor %}
+                </ul>
+            </nav>
+            {% endif %}
+            
+            <!-- Summary -->
+            <div class="has-text-centered mt-4 mb-4">
+                <p class="has-text-grey">
+                    {% set start = ((pagination.page - 1) * per_page) + 1 %}
+                    {% set end = pagination.page * per_page %}
+                    {% if end > pagination.total %}
+                        {% set end = pagination.total %}
+                    {% endif %}
+                    Showing {{ start }} - {{ end }} of {{ pagination.total }} changes
+                </p>
+            </div>
+        {% else %}
+            <div class="notification is-info is-light">
+                <p>No changes have been recorded for this script yet.</p>
+            </div>
+        {% endif %}
+    </div>
+</section>
+
+<style>
+    .diff-container {
+        background-color: #f5f5f5;
+        border-radius: 4px;
+        padding: 1rem;
+        overflow-x: auto;
+    }
+
+    .diff-view {
+        font-family: 'Courier New', monospace;
+        font-size: 0.875rem;
+        line-height: 1.4;
+        margin: 0;
+        white-space: pre;
+    }
+
+    .diff-header {
+        color: #00bcd4;
+        font-weight: bold;
+        display: block;
+    }
+
+    .diff-add {
+        background-color: #e6ffed;
+        color: #24802b;
+        display: block;
+    }
+
+    .diff-delete {
+        background-color: #ffebe9;
+        color: #cc3333;
+        display: block;
+    }
+
+    .diff-context {
+        color: #586069;
+        display: block;
+    }
+
+    details summary {
+        cursor: pointer;
+    }
+
+    details[open] summary {
+        margin-bottom: 0.5rem;
+    }
+</style>
+{% endblock %}
