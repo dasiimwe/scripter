@@ -337,47 +337,16 @@ def edit_script(script_id):
     # Form fields are automatically available through the relationship
     
     if request.method == 'POST':
-        # Track changes
+        # Store original values for change tracking
         old_name = script.name
         old_status = script.status
         old_template_content = template.content if template else ""
         old_output_format = template.output_format if template else "text"
         
-        # Update script details
+        # Get new values from form
         new_name = request.form.get('name')
         new_status = request.form.get('status')
         new_script_instructions = request.form.get('script_instructions', '')
-        
-        # Track script name/status changes
-        if old_name != new_name:
-            change = ScriptChange(
-                script_id=script_id,
-                user_id=current_user.id,
-                change_type='script_edit',
-                field_name='name',
-                old_value=old_name,
-                new_value=new_name,
-                description=f'Changed script name from "{old_name}" to "{new_name}"'
-            )
-            db.session.add(change)
-        
-        if old_status != new_status:
-            change = ScriptChange(
-                script_id=script_id,
-                user_id=current_user.id,
-                change_type='script_edit',
-                field_name='status',
-                old_value=old_status,
-                new_value=new_status,
-                description=f'Changed status from "{old_status}" to "{new_status}"'
-            )
-            db.session.add(change)
-        
-        script.name = new_name
-        script.status = new_status
-        script.script_instructions = new_script_instructions
-        
-        # Update template
         template_content = request.form.get('content')
         output_format = request.form.get('output_format')
         
@@ -436,6 +405,37 @@ def edit_script(script_id):
                                      jinja_snippets=jinja_snippets,
                                      template_error=error_msg)
         
+        # All validation passed, now update the script properties
+        script.name = new_name
+        script.status = new_status
+        script.script_instructions = new_script_instructions
+        
+        # Track script name/status changes
+        if old_name != new_name:
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='script_edit',
+                field_name='name',
+                old_value=old_name,
+                new_value=new_name,
+                description=f'Changed script name from "{old_name}" to "{new_name}"'
+            )
+            db.session.add(change)
+        
+        if old_status != new_status:
+            change = ScriptChange(
+                script_id=script_id,
+                user_id=current_user.id,
+                change_type='script_edit',
+                field_name='status',
+                old_value=old_status,
+                new_value=new_status,
+                description=f'Changed status from "{old_status}" to "{new_status}"'
+            )
+            db.session.add(change)
+        
+        # Update template if content changed
         if template_content is not None and (old_template_content != template_content or old_output_format != output_format):
             # Track template changes
             if old_template_content != template_content:
