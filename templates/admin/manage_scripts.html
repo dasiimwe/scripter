@@ -197,6 +197,14 @@
                                 </a>
                             </p>
                             <p class="control">
+                                <a href="{{ url_for('export_template', script_id=script.id) }}" 
+                                   class="button is-small is-warning" title="Export Template" download>
+                                    <span class="icon">
+                                        <i class="fas fa-download"></i>
+                                    </span>
+                                </a>
+                            </p>
+                            <p class="control">
                                 <button class="button is-small is-danger delete-script" 
                                         data-script-id="{{ script.id }}" 
                                         data-script-name="{{ script.name }}" 

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, make_response
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, make_response, Response
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -2106,6 +2106,49 @@ def generate_diff(old_text, new_text):
             diff_lines.append({'type': 'context', 'content': line})
     
     return diff_lines
+
+@app.route('/admin/scripts/<int:script_id>/export-template')
+@login_required
+def export_template(script_id):
+    if not current_user.is_admin:
+        flash('Access denied: Admin privileges required')
+        return redirect(url_for('index'))
+    
+    script = Script.query.get_or_404(script_id)
+    template = Template.query.filter_by(script_id=script_id).first()
+    
+    if not template:
+        flash('No template found for this script')
+        return redirect(url_for('admin_scripts'))
+    
+    # Get all form fields to list as variables
+    form_fields = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order).all()
+    
+    # Prepare the export content with variables at the top
+    export_content = ""
+    
+    # Add variable list at the top as comments
+    if form_fields:
+        export_content += "# Template Variables\n"
+        export_content += "# ==================\n"
+        for field in form_fields:
+            variable_name = field.name
+            export_content += f"# {variable_name} - {{{{ {variable_name} }}}}\n"
+        export_content += "\n"
+    
+    # Add the actual template content
+    export_content += template.content
+    
+    # Create response with proper headers for file download
+    response = Response(
+        export_content,
+        mimetype="text/plain",
+        headers={
+            "Content-Disposition": f"attachment; filename={script.name.replace(' ', '_')}_template.txt"
+        }
+    )
+    
+    return response
 
 if __name__ == '__main__':
     app.run(debug=True)
