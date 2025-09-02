@@ -3,45 +3,15 @@
 {% block title %}{{ script.name }} - Form{% endblock %}
 
 {% block head_extra %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+<!-- Tomorrow theme colors based on Chris Kempson's Tomorrow Theme -->
 <style>
     .page-container {
         display: flex;
         flex-direction: column;
     }
     
-    .form-output-container {
-        display: flex;
-        flex-direction: column;
-    }
-    
-    @media screen and (min-width: 769px) {
-        .form-output-container {
-            flex-direction: row;
-        }
-    }
-    
-    .form-container {
-        flex: 0 1 auto;
-        padding: 0.75rem;
-        max-width: 100%;
-    }
-    
-    .output-container {
-        flex: 1 0 auto;
-        padding: 0.75rem;
-        display: flex;
-        flex-direction: column;
-        border-left: 1px solid var(--border-color);
-    }
-    
-    @media screen and (max-width: 768px) {
-        .output-container {
-            border-left: none;
-            border-top: 1px solid var(--border-color);
-            margin-top: 0.75rem;
-            padding-top: 0.75rem;
-        }
-    }
     
     .field-row {
         display: flex;
@@ -65,14 +35,172 @@
     
     .output-area {
         flex: 1;
-        overflow-y: auto;
-        padding: 0;
+        display: flex;
+        flex-direction: column;
+        min-height: 150px;
+        max-height: 500px;
+    }
+    
+    /* Tomorrow Theme for CodeMirror */
+    .cm-s-tomorrow.CodeMirror {
+        background: #FFFFFF;
+        color: #4D4D4C;
+    }
+    .cm-s-tomorrow div.CodeMirror-selected {
+        background: #D6D6D6;
+    }
+    .cm-s-tomorrow .CodeMirror-line::selection,
+    .cm-s-tomorrow .CodeMirror-line > span::selection,
+    .cm-s-tomorrow .CodeMirror-line > span > span::selection {
+        background: #D6D6D6;
+    }
+    .cm-s-tomorrow .CodeMirror-line::-moz-selection,
+    .cm-s-tomorrow .CodeMirror-line > span::-moz-selection,
+    .cm-s-tomorrow .CodeMirror-line > span > span::-moz-selection {
+        background: #D6D6D6;
+    }
+    .cm-s-tomorrow .CodeMirror-gutters {
+        background: #FFFFFF;
+        border-right: 1px solid #e0e0e0;
+    }
+    .cm-s-tomorrow .CodeMirror-guttermarker {
+        color: #4D4D4C;
+    }
+    .cm-s-tomorrow .CodeMirror-guttermarker-subtle {
+        color: #8E908C;
+    }
+    .cm-s-tomorrow .CodeMirror-linenumber {
+        color: #8E908C;
+    }
+    .cm-s-tomorrow .CodeMirror-cursor {
+        border-left: 1px solid #AEAFAD;
+    }
+    .cm-s-tomorrow span.cm-comment {
+        color: #8E908C;
+    }
+    .cm-s-tomorrow span.cm-atom {
+        color: #F5871F;
+    }
+    .cm-s-tomorrow span.cm-number {
+        color: #F5871F;
+    }
+    .cm-s-tomorrow span.cm-property,
+    .cm-s-tomorrow span.cm-attribute {
+        color: #C82829;
+    }
+    .cm-s-tomorrow span.cm-keyword {
+        color: #8959A8;
+    }
+    .cm-s-tomorrow span.cm-builtin {
+        color: #F5871F;
+    }
+    .cm-s-tomorrow span.cm-string {
+        color: #718C00;
+    }
+    .cm-s-tomorrow span.cm-variable {
+        color: #C82829;
+    }
+    .cm-s-tomorrow span.cm-variable-2 {
+        color: #3E999F;
+    }
+    .cm-s-tomorrow span.cm-variable-3,
+    .cm-s-tomorrow span.cm-type {
+        color: #C99E00;
+    }
+    .cm-s-tomorrow span.cm-def {
+        color: #4271AE;
+    }
+    .cm-s-tomorrow span.cm-bracket {
+        color: #4D4D4C;
+    }
+    .cm-s-tomorrow span.cm-tag {
+        color: #C82829;
+    }
+    .cm-s-tomorrow span.cm-header {
+        color: #4271AE;
+        font-weight: bold;
+    }
+    .cm-s-tomorrow span.cm-link {
+        color: #3E999F;
+    }
+    .cm-s-tomorrow span.cm-error {
+        background: #C82829;
+        color: #FFFFFF;
+    }
+    .cm-s-tomorrow span.cm-operator {
+        color: #3E999F;
+    }
+    .cm-s-tomorrow span.cm-qualifier {
+        color: #C99E00;
+    }
+    .cm-s-tomorrow .CodeMirror-activeline-background {
+        background: #EFEFEF;
+    }
+    .cm-s-tomorrow .CodeMirror-matchingbracket {
+        color: #4D4D4C !important;
+        background-color: #D6D6D6;
+        font-weight: bold;
+    }
+    
+    .CodeMirror {
+        width: 100%;
+        height: 800px;
+        min-height: 800px;
+        max-height: 800px;
         border: 1px solid var(--border-color);
         border-radius: 6px;
-        background-color: #1e1e1e;
-        min-height: 150px;
-        max-height: 350px;
+        font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
     }
+    
+    .CodeMirror-scroll {
+        min-height: 800px;
+        max-height: 800px;
+    }
+    
+    @media screen and (max-width: 850px) {
+        .CodeMirror {
+            width: 100%;
+        }
+    }
+    
+    .editor-controls {
+        margin-bottom: 0.5rem;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+    
+    .control-group {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .control-group label {
+        font-size: 0.9rem;
+        color: #4D4D4C;
+    }
+    
+    .control-group select {
+        padding: 0.25rem 0.5rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: white;
+        font-size: 0.9rem;
+    }
+    
+    /* Custom syntax highlighting for network devices */
+    .cm-s-network .cm-keyword { color: #8959A8; font-weight: bold; }
+    .cm-s-network .cm-variable { color: #C82829; }
+    .cm-s-network .cm-comment { color: #8E908C; font-style: italic; }
+    .cm-s-network .cm-string { color: #718C00; }
+    .cm-s-network .cm-number { color: #F5871F; }
+    .cm-s-network .cm-operator { color: #3E999F; }
+    .cm-s-network .cm-attribute { color: #4271AE; }
+    .cm-s-network .cm-builtin { color: #C99E00; font-weight: bold; }
+    .cm-s-network .cm-tag { color: #C82829; font-weight: bold; }
+    .cm-s-network .cm-header { color: #4271AE; font-weight: bold; }
     
     .code-output {
         font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
@@ -207,14 +335,247 @@
     .code-separator {
         color: #CE9178;
     }
+    
+    /* IP Helper styles */
+    .ip-helper-link {
+        display: none;
+        font-size: 0.85rem;
+        margin-bottom: 0.25rem;
+    }
+    .ip-helper-link.is-active {
+        display: inline-block;
+    }
+    .ip-helper-link a {
+        color: #3273dc;
+        text-decoration: none;
+    }
+    .ip-helper-link a:hover {
+        text-decoration: underline;
+    }
+    .modal-card {
+        width: 600px;
+    }
+    .ip-calc-result {
+        background-color: #f5f5f5;
+        padding: 1rem;
+        border-radius: 4px;
+        margin-top: 1rem;
+        font-family: monospace;
+    }
+    .ip-calc-result .result-row {
+        display: flex;
+        align-items: center;
+        padding: 0.25rem 0;
+        border-bottom: 1px solid #e0e0e0;
+    }
+    .ip-calc-result .result-row:last-child {
+        border-bottom: none;
+    }
+    .ip-calc-result .result-label {
+        font-weight: bold;
+        color: #363636;
+        flex: 0 0 150px;
+    }
+    .ip-calc-result .result-value {
+        color: #4a4a4a;
+        flex: 1;
+        padding: 0 0.5rem;
+    }
+    .ip-calc-result .result-actions {
+        display: flex;
+        gap: 0.25rem;
+    }
+    .ip-calc-result .result-actions button {
+        padding: 0.25rem 0.5rem;
+        background: transparent;
+        border: 1px solid #dbdbdb;
+        border-radius: 3px;
+        cursor: pointer;
+        color: #6b6b6b;
+        font-size: 0.875rem;
+    }
+    .ip-calc-result .result-actions button:hover {
+        background-color: #f5f5f5;
+        border-color: #b5b5b5;
+        color: #363636;
+    }
+    .ip-calc-result .result-actions button.is-success {
+        color: #48c774;
+        border-color: #48c774;
+    }
+    
+    
+    .instructions-content {
+        background-color: #f9f9f9;
+        padding: 1.5rem;
+        border-radius: 6px;
+        margin-bottom: 1rem;
+        overflow: hidden;
+        word-wrap: break-word;
+    }
+    
+    .instructions-content h1,
+    .instructions-content h2,
+    .instructions-content h3 {
+        color: #3273dc;
+        margin-bottom: 0.75rem;
+        margin-top: 1rem;
+    }
+    
+    .instructions-content h1:first-child,
+    .instructions-content h2:first-child,
+    .instructions-content h3:first-child {
+        margin-top: 0;
+    }
+    
+    .instructions-content p {
+        margin-bottom: 1rem;
+        line-height: 1.6;
+        color: #4a4a4a;
+    }
+    
+    .instructions-content p:last-child {
+        margin-bottom: 0;
+    }
+    
+    .instructions-content ul,
+    .instructions-content ol {
+        margin-left: 1.5rem;
+        margin-bottom: 1rem;
+        color: #4a4a4a;
+    }
+    
+    .instructions-content li {
+        margin-bottom: 0.5rem;
+    }
+    
+    .instructions-content blockquote {
+        border-left: 4px solid #3273dc;
+        margin-left: 0;
+        margin-bottom: 1rem;
+        padding-left: 1rem;
+        background-color: rgba(50, 115, 220, 0.05);
+        font-style: italic;
+        color: #6b7280;
+    }
+    
+    .instructions-content code {
+        background-color: #f1f5f9;
+        color: #dc2626;
+        padding: 0.125rem 0.25rem;
+        border-radius: 3px;
+        font-family: 'SFMono-Regular', 'Monaco', 'Consolas', monospace;
+        font-size: 0.875em;
+    }
+    
+    .instructions-content pre {
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        padding: 1rem;
+        overflow-x: auto;
+        margin-bottom: 1rem;
+    }
+    
+    .instructions-content pre code {
+        background: none;
+        color: inherit;
+        padding: 0;
+    }
+    
+    .instructions-content strong {
+        font-weight: 600;
+        color: #374151;
+    }
+    
+    .instructions-content em {
+        font-style: italic;
+        color: #6b7280;
+    }
+    
+    .instructions-content a {
+        color: #3273dc;
+        text-decoration: underline;
+    }
+    
+    .instructions-content a:hover {
+        color: #2366d1;
+    }
+    
+    /* Generated Scripts Area */
+    #code-output {
+        height: 800px;
+        max-height: 800px;
+        min-height: 800px;
+        width: 100%;
+    }
+    
+    /* CodeMirror specific styling */
+    .CodeMirror {
+        height: 800px !important;
+        width: 100% !important;
+        border: 1px solid #dbdbdb;
+        border-radius: 4px;
+    }
+    
+    .output-html {
+        height: 800px;
+        overflow-y: auto;
+        border: 1px solid #dbdbdb;
+        border-radius: 4px;
+        padding: 1rem;
+    }
+    
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container page-container">
-    <div class="mb-4">
-        <h1 class="title">{{ script.name }}{% if is_preview %} <span class="tag is-info">Preview</span>{% endif %}</h1>
+    <!-- Breadcrumbs -->
+    <nav class="breadcrumb mb-4" aria-label="breadcrumbs">
+        <ul>
+            <li><a href="{{ url_for('index') }}">Home</a></li>
+            <li class="is-active">
+                <a href="#" aria-current="page">
+                    {{ script.name }}{% if is_preview %} <span class="tag is-info">Preview</span>{% endif %}
+                </a>
+            </li>
+        </ul>
+    </nav>
+    
+    <!-- CSV Actions (only for non-preview mode) -->
+    {% if not is_preview %}
+    <div class="box mb-4">
+        <h3 class="title is-6">Bulk Actions</h3>
+        <div class="field is-grouped is-grouped-multiline">
+            <div class="control">
+                <a href="{{ url_for('download_csv_template', script_id=script.id) }}" class="button is-info is-small">
+                    <span class="icon">
+                        <i class="fas fa-download"></i>
+                    </span>
+                    <span>Download CSV Template</span>
+                </a>
+            </div>
+            <div class="control">
+                <a href="{{ url_for('bulk_generate_scripts', script_id=script.id) }}" class="button is-primary is-small">
+                    <span class="icon">
+                        <i class="fas fa-upload"></i>
+                    </span>
+                    <span>Upload CSV & Generate</span>
+                </a>
+            </div>
+            <div class="control">
+                <a href="{{ url_for('list_generated_scripts') }}" class="button is-success is-small">
+                    <span class="icon">
+                        <i class="fas fa-list"></i>
+                    </span>
+                    <span>View Generated Scripts</span>
+                </a>
+            </div>
+        </div>
+        <p class="help">Download a CSV template, fill it with your data, then upload to generate multiple scripts at once.</p>
     </div>
+    {% endif %}
     
     {% if is_preview %}
     <div class="preview-info">
@@ -238,155 +599,560 @@
     </div>
     {% endif %}
     
-    <div class="form-output-container">
-        <div class="form-container">
-            <form id="script-form" method="POST" action="{{ form_action }}">
-                {% include 'partials/script_form_content.html' %}
-                
-                <div class="form-actions">
-                    <button type="submit" class="button is-primary is-small">
-                        <span class="icon is-small">
-                            <i class="fas fa-magic"></i>
-                        </span>
-                        <span>Generate Script</span>
-                    </button>
+    <!-- Form and Instructions/Generated Scripts Side by Side -->
+    <div class="columns">
+        <!-- Form Section (1/3 width) -->
+        <div class="column is-one-third">
+            <div class="box">
+                <form id="script-form" method="POST" action="{{ form_action }}">
+                    {% include 'partials/script_form_content.html' %}
                     
-                    {% if is_preview %}
-                    <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-light is-small">
-                        <span class="icon is-small">
-                            <i class="fas fa-arrow-left"></i>
-                        </span>
-                        <span>Back to Editor</span>
-                    </a>
-                    {% else %}
-                    <a href="{{ url_for('index') }}" class="button is-light is-small">
-                        <span class="icon is-small">
-                            <i class="fas fa-arrow-left"></i>
-                        </span>
-                        <span>Back to Scripts</span>
-                    </a>
-                    {% endif %}
-                </div>
-            </form>
+                    <div class="form-actions">
+                        <button type="submit" class="button is-primary is-small">
+                            <span class="icon is-small">
+                                <i class="fas fa-magic"></i>
+                            </span>
+                            <span>Generate Script</span>
+                        </button>
+                        
+                        {% if is_preview %}
+                        <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-light is-small">
+                            <span class="icon is-small">
+                                <i class="fas fa-arrow-left"></i>
+                            </span>
+                            <span>Back to Editor</span>
+                        </a>
+                        {% else %}
+                        <a href="{{ url_for('index') }}" class="button is-light is-small">
+                            <span class="icon is-small">
+                                <i class="fas fa-arrow-left"></i>
+                            </span>
+                            <span>Back to Scripts</span>
+                        </a>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
         </div>
         
-        {% if output %}
-        <div class="output-container">
-            <h3 class="title is-5">Generated Output</h3>
-            
-            <div class="output-area">
-                {% if script.template.output_format == 'html' %}
-                    <div class="output-html">{{ output|safe }}</div>
-                {% else %}
-                    <div class="code-output" id="code-output">{{ output|e }}</div>
-                {% endif %}
-            </div>
-            
-            <div class="buttons is-right">
-                {% if submission_id and not is_preview %}
-                <a href="{{ url_for('download_submission', script_id=script.id, submission_id=submission_id) }}" 
-                   class="button is-info is-small">
-                    <span class="icon is-small">
-                        <i class="fas fa-download"></i>
+        <!-- Instructions and Generated Scripts Section (2/3 width) -->
+        <div class="column is-two-thirds">
+            <!-- Instructions Section -->
+            <div class="box">
+                <h3 class="title is-5">
+                    <span class="icon-text">
+                        <span class="icon">
+                            <i class="fas fa-info-circle"></i>
+                        </span>
+                        <span>Instructions</span>
                     </span>
-                    <span>Download</span>
-                </a>
+                </h3>
+                <div class="instructions-content">
+                    {% if script.script_instructions %}
+                        {{ script.script_instructions|safe }}
+                    {% else %}
+                        <p class="has-text-grey has-text-centered">
+                            <em>No instructions provided for this script.</em>
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Generated Script Section -->
+            {% if output %}
+            <div class="box">
+                <h3 class="title is-5">
+                    <span class="icon-text">
+                        <span class="icon">
+                            <i class="fas fa-code"></i>
+                        </span>
+                        <span>Generated Script</span>
+                    </span>
+                </h3>
+                
+                {% if script.template.output_format != 'html' %}
+                <div class="editor-controls">
+                    <div class="control-group">
+                        <label for="theme-select">Theme:</label>
+                        <select id="theme-select">
+                            <option value="tomorrow">Light (Tomorrow)</option>
+                            <option value="monokai">Dark (Monokai)</option>
+                        </select>
+                    </div>
+                    <div class="control-group">
+                        <label for="language-select">Language:</label>
+                        <select id="language-select">
+                            <option value="auto">Auto-detect</option>
+                            <option value="text/plain">Plain Text</option>
+                            <option value="shell">Shell/Bash</option>
+                            <option value="python">Python</option>
+                            <option value="javascript">JavaScript</option>
+                            <option value="xml">XML/HTML</option>
+                            <option value="yaml">YAML</option>
+                            <option value="cisco">Cisco IOS</option>
+                            <option value="fortinet">FortiGate</option>
+                            <option value="juniper">Juniper JunOS</option>
+                            <option value="mikrotik">MikroTik</option>
+                            <option value="paloalto">Palo Alto</option>
+                            <option value="aruba">Aruba</option>
+                        </select>
+                    </div>
+                </div>
                 {% endif %}
                 
-                <button id="copy-output" class="button is-success is-small">
-                    <span class="icon is-small">
-                        <i class="fas fa-copy"></i>
-                    </span>
-                    <span>Copy to Clipboard</span>
-                </button>
+                <div>
+                    {% if script.template.output_format == 'html' %}
+                        <div class="output-html">{{ output|safe }}</div>
+                    {% else %}
+                        <textarea id="code-output" class="textarea">{{ output }}</textarea>
+                    {% endif %}
+                </div>
+                
+                <div class="buttons is-right">
+                    {% if submission_id and not is_preview %}
+                    <a href="{{ url_for('download_submission', script_id=script.id, submission_id=submission_id) }}" 
+                       class="button is-info is-small">
+                        <span class="icon is-small">
+                            <i class="fas fa-download"></i>
+                        </span>
+                        <span>Download</span>
+                    </a>
+                    {% endif %}
+                    
+                    <button id="copy-output" class="button is-success is-small">
+                        <span class="icon is-small">
+                            <i class="fas fa-copy"></i>
+                        </span>
+                        <span>Copy to Clipboard</span>
+                    </button>
+                </div>
             </div>
+            {% endif %}
         </div>
-        {% endif %}
+    </div>
+    
+    <!-- IP Helper Modal -->
+    <div class="modal" id="ip-helper-modal">
+        <div class="modal-background"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title">IP Address Helper</p>
+                <button class="delete" aria-label="close" onclick="closeIPHelper()"></button>
+            </header>
+            <section class="modal-card-body">
+                <div class="field">
+                    <label class="label">IP Address</label>
+                    <div class="control">
+                        <input class="input" type="text" id="ip-helper-address" placeholder="192.168.1.1">
+                    </div>
+                </div>
+                
+                <div class="field">
+                    <label class="label">Subnet Mask or CIDR</label>
+                    <div class="control">
+                        <input class="input" type="text" id="ip-helper-subnet" placeholder="255.255.255.0 or /24">
+                    </div>
+                    <p class="help">Enter subnet mask (255.255.255.0) or CIDR notation (/24)</p>
+                </div>
+                
+                <div class="field">
+                    <div class="control">
+                        <button class="button is-primary" onclick="calculateIPInfo()">Calculate</button>
+                    </div>
+                </div>
+                
+                <div id="ip-calc-result" class="ip-calc-result" style="display: none;">
+                    <div class="result-row">
+                        <span class="result-label">Network Address:</span>
+                        <span class="result-value" id="result-network">-</span>
+                        <div class="result-actions">
+                            <button onclick="insertValue('result-network')" title="Insert into field">
+                                <i class="fas fa-arrow-left"></i> Insert
+                            </button>
+                            <button onclick="copyValue('result-network')" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-label">Subnet Mask:</span>
+                        <span class="result-value" id="result-subnet">-</span>
+                        <div class="result-actions">
+                            <button onclick="insertValue('result-subnet')" title="Insert into field">
+                                <i class="fas fa-arrow-left"></i> Insert
+                            </button>
+                            <button onclick="copyValue('result-subnet')" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-label">CIDR Notation:</span>
+                        <span class="result-value" id="result-cidr">-</span>
+                        <div class="result-actions">
+                            <button onclick="insertValue('result-cidr')" title="Insert into field">
+                                <i class="fas fa-arrow-left"></i> Insert
+                            </button>
+                            <button onclick="copyValue('result-cidr')" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-label">Broadcast Address:</span>
+                        <span class="result-value" id="result-broadcast">-</span>
+                        <div class="result-actions">
+                            <button onclick="insertValue('result-broadcast')" title="Insert into field">
+                                <i class="fas fa-arrow-left"></i> Insert
+                            </button>
+                            <button onclick="copyValue('result-broadcast')" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-label">First Usable IP:</span>
+                        <span class="result-value" id="result-first">-</span>
+                        <div class="result-actions">
+                            <button onclick="insertValue('result-first')" title="Insert into field">
+                                <i class="fas fa-arrow-left"></i> Insert
+                            </button>
+                            <button onclick="copyValue('result-first')" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-label">Last Usable IP:</span>
+                        <span class="result-value" id="result-last">-</span>
+                        <div class="result-actions">
+                            <button onclick="insertValue('result-last')" title="Insert into field">
+                                <i class="fas fa-arrow-left"></i> Insert
+                            </button>
+                            <button onclick="copyValue('result-last')" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-label">Total Host IPs:</span>
+                        <span class="result-value" id="result-hosts">-</span>
+                        <div class="result-actions">
+                            <button onclick="copyValue('result-hosts')" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-label">Usable Host IPs:</span>
+                        <span class="result-value" id="result-usable">-</span>
+                        <div class="result-actions">
+                            <button onclick="copyValue('result-usable')" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i> Copy
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <footer class="modal-card-foot">
+                <button class="button" onclick="closeIPHelper()">Close</button>
+            </footer>
+        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/shell/shell.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/yaml/yaml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/mode/simple.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Define network device modes
+    CodeMirror.defineSimpleMode("cisco", {
+        start: [
+            {regex: /^!.*$/, token: "comment"},
+            {regex: /^(interface|router|line|vlan|access-list|ip|hostname|enable|username|banner|service|boot|crypto|spanning-tree|vtp|snmp|logging|ntp|clock|aaa)/, token: "keyword"},
+            {regex: /\b(GigabitEthernet|FastEthernet|Ethernet|Vlan|Loopback|Tunnel|Serial)\d+/, token: "builtin"},
+            {regex: /\b(permit|deny|any|host|eq|gt|lt|neq|range|established|log)\b/, token: "attribute"},
+            {regex: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, token: "number"},
+            {regex: /"[^"]*"/, token: "string"},
+            {regex: /\b(no|shutdown|exit|end)\b/, token: "keyword"},
+            {regex: /\$\w+\$/, token: "variable"}
+        ]
+    });
+    
+    CodeMirror.defineSimpleMode("fortinet", {
+        start: [
+            {regex: /^#.*$/, token: "comment"},
+            {regex: /^(config|edit|set|next|end|get|show|execute|diagnose)\b/, token: "keyword"},
+            {regex: /\b(system|firewall|vpn|web-filter|application|ips|antivirus|router|user|authentication)\b/, token: "builtin"},
+            {regex: /\b(enable|disable|allow|deny|accept|drop|reject|ipsec|ssl)\b/, token: "attribute"},
+            {regex: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, token: "number"},
+            {regex: /"[^"]*"/, token: "string"},
+            {regex: /\b(port\d+|wan\d+|lan\d+|dmz\d*|internal\d*)\b/, token: "variable"}
+        ]
+    });
+    
+    CodeMirror.defineSimpleMode("juniper", {
+        start: [
+            {regex: /^#.*$|^\/\*[\s\S]*?\*\//, token: "comment"},
+            {regex: /\b(set|delete|show|commit|rollback|request|run|edit|top|up|exit)\b/, token: "keyword"},
+            {regex: /\b(interfaces|routing-options|protocols|security|system|firewall|nat|vpn|vlans)\b/, token: "builtin"},
+            {regex: /\b(inet|inet6|family|unit|vlan-id|address|gateway)\b/, token: "attribute"},
+            {regex: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, token: "number"},
+            {regex: /"[^"]*"/, token: "string"},
+            {regex: /\b(ge-|xe-|et-|fe-)\d+\/\d+\/\d+/, token: "variable"},
+            {regex: /\{|\}|\[|\]/, token: "bracket"}
+        ]
+    });
+    
+    CodeMirror.defineSimpleMode("mikrotik", {
+        start: [
+            {regex: /^#.*$/, token: "comment"},
+            {regex: /^\/\w+/, token: "keyword"},
+            {regex: /\b(add|set|remove|print|export|import|enable|disable|comment)\b/, token: "keyword"},
+            {regex: /\b(interface|ip|system|user|firewall|nat|mangle|queue|routing|wireless)\b/, token: "builtin"},
+            {regex: /\b(address|network|gateway|dns|action|chain|protocol|port)\b/, token: "attribute"},
+            {regex: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, token: "number"},
+            {regex: /"[^"]*"/, token: "string"},
+            {regex: /\b(ether\d+|wlan\d+|bridge\d*|vlan\d+)\b/, token: "variable"}
+        ]
+    });
+    
+    CodeMirror.defineSimpleMode("paloalto", {
+        start: [
+            {regex: /^#.*$/, token: "comment"},
+            {regex: /\b(set|delete|show|commit|request|configure|edit|top|exit)\b/, token: "keyword"},
+            {regex: /\b(network|deviceconfig|rulebase|security|nat|application|zone|service)\b/, token: "builtin"},
+            {regex: /\b(ethernet|vlan|virtual-router|interface|address|ip-range)\b/, token: "attribute"},
+            {regex: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, token: "number"},
+            {regex: /"[^"]*"/, token: "string"},
+            {regex: /\b(trust|untrust|dmz)\b/, token: "variable"}
+        ]
+    });
+    
+    CodeMirror.defineSimpleMode("aruba", {
+        start: [
+            {regex: /^!.*$/, token: "comment"},
+            {regex: /\b(configure|show|write|enable|interface|vlan|ip|hostname|snmp|spanning-tree)\b/, token: "keyword"},
+            {regex: /\b(GigabitEthernet|management|vlan|trunk|access|tagged|untagged)\b/, token: "builtin"},
+            {regex: /\b(permit|deny|allow|block)\b/, token: "attribute"},
+            {regex: /\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/, token: "number"},
+            {regex: /"[^"]*"/, token: "string"},
+            {regex: /\b\d+\/\d+\/\d+\b/, token: "variable"}
+        ]
+    });
+    
+    // Function to detect language
+    function detectLanguage(content) {
+        // Network device detection
+        if (/^(interface|router|line|vlan|hostname|^!)/mi.test(content) && /\b(GigabitEthernet|FastEthernet|Vlan)\d+/i.test(content)) {
+            return 'cisco';
+        }
+        if (/^(config |edit |set |next|end$)/mi.test(content) && /\b(firewall|fortigate|fortinet)/i.test(content)) {
+            return 'fortinet';
+        }
+        if (/^(set |delete |show |commit)/mi.test(content) && /\b(interfaces|routing-options|security zones)/i.test(content)) {
+            return 'juniper';
+        }
+        if (/^\/\w+ (add|set|print)/mi.test(content) || /\b(mikrotik|routeros)/i.test(content)) {
+            return 'mikrotik';
+        }
+        if (/\b(set |delete |show |commit)/mi.test(content) && /\b(deviceconfig|rulebase|palo alto)/i.test(content)) {
+            return 'paloalto';
+        }
+        if (/^(configure terminal|show running|aruba)/mi.test(content)) {
+            return 'aruba';
+        }
+        
+        // Traditional language detection
+        if (content.includes('#!/bin/bash') || content.includes('#!/bin/sh')) {
+            return 'shell';
+        }
+        if (content.includes('#!/usr/bin/python') || /\b(import |def |class |print\()/i.test(content)) {
+            return 'python';
+        }
+        if (/\b(function |var |const |let |=&gt;|console\.)/i.test(content)) {
+            return 'javascript';
+        }
+        if (content.includes('<html') || content.includes('<!DOCTYPE')) {
+            return 'xml';
+        }
+        if (/^---\s*$/m.test(content) && /^\s*\w+:\s*/m.test(content)) {
+            return 'yaml';
+        }
+        
+        return 'text/plain';
+    }
+    
+    window.editor = null;
+    
+    // Initialize CodeMirror for code output
+    function initializeCodeMirror() {
+        const codeTextarea = document.getElementById('code-output');
+        if (codeTextarea && !window.editor) {
+            window.editor = CodeMirror.fromTextArea(codeTextarea, {
+                theme: 'tomorrow',
+                lineNumbers: true,
+                readOnly: false,  // Make it editable
+                mode: 'text/plain',
+                lineWrapping: true,
+                viewportMargin: Infinity,
+                styleActiveLine: true,
+                matchBrackets: true
+            });
+            
+            // Force refresh after a short delay to ensure proper rendering
+            setTimeout(() => {
+                if (window.editor) {
+                    window.editor.refresh();
+                }
+            }, 100);
+            
+            // Auto-detect and set initial language
+            const content = window.editor.getValue();
+            const detectedMode = detectLanguage(content);
+            const languageSelect = document.getElementById('language-select');
+            
+            if (detectedMode !== 'text/plain' && languageSelect) {
+                window.editor.setOption('mode', detectedMode);
+                // Update the select to show detected language
+                for (let option of languageSelect.options) {
+                    if (option.value === detectedMode) {
+                        languageSelect.value = detectedMode;
+                        break;
+                    }
+                }
+            }
+            
+            // Language selector
+            if (languageSelect) {
+                // Remove existing event listeners to avoid duplicates
+                languageSelect.removeEventListener('change', languageChangeHandler);
+                languageSelect.addEventListener('change', languageChangeHandler);
+                
+                // Load saved language preference
+                const savedLanguage = localStorage.getItem('codemirror-language');
+                if (savedLanguage && savedLanguage !== 'auto') {
+                    languageSelect.value = savedLanguage;
+                    window.editor.setOption('mode', savedLanguage);
+                }
+            }
+            
+            // Theme selector
+            const themeSelect = document.getElementById('theme-select');
+            if (themeSelect) {
+                // Remove existing event listeners to avoid duplicates
+                themeSelect.removeEventListener('change', themeChangeHandler);
+                themeSelect.addEventListener('change', themeChangeHandler);
+                
+                // Load saved theme preference
+                const savedTheme = localStorage.getItem('codemirror-theme');
+                if (savedTheme) {
+                    themeSelect.value = savedTheme;
+                    window.editor.setOption('theme', savedTheme);
+                }
+            }
+        }
+    }
+    
+    // Language change handler
+    function languageChangeHandler() {
+        if (!window.editor) return;
+        
+        const mode = this.value;
+        if (mode === 'auto') {
+            const detected = detectLanguage(window.editor.getValue());
+            window.editor.setOption('mode', detected);
+        } else {
+            window.editor.setOption('mode', mode);
+        }
+        // Save preference
+        localStorage.setItem('codemirror-language', mode);
+    }
+    
+    // Theme change handler
+    function themeChangeHandler() {
+        if (!window.editor) return;
+        
+        window.editor.setOption('theme', this.value);
+        // Save preference to localStorage
+        localStorage.setItem('codemirror-theme', this.value);
+    }
+    
+    // Initialize CodeMirror immediately if textarea exists
+    initializeCodeMirror();
+    
+    // Also try to initialize after a delay in case the textarea wasn't ready
+    setTimeout(initializeCodeMirror, 500);
+    
+    // Watch for dynamically added textareas (after form submission)
+    const observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.type === 'childList') {
+                mutation.addedNodes.forEach(function(node) {
+                    if (node.nodeType === Node.ELEMENT_NODE) {
+                        const textarea = node.querySelector('#code-output');
+                        if (textarea && !window.editor) {
+                            setTimeout(initializeCodeMirror, 100);
+                        }
+                    }
+                });
+            }
+        });
+    });
+    
+    // Start observing
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+    
     // Copy to clipboard functionality
     const copyButton = document.getElementById('copy-output');
     if (copyButton) {
         copyButton.addEventListener('click', function() {
-            const outputArea = document.querySelector('.code-output') || document.querySelector('.output-html');
-            const outputText = outputArea.innerText || outputArea.textContent;
+            let outputText;
+            if (window.editor) {
+                outputText = window.editor.getValue();
+            } else {
+                const outputArea = document.querySelector('.output-html');
+                outputText = outputArea ? (outputArea.innerText || outputArea.textContent) : '';
+            }
             
-            // Create a temporary textarea element to copy from
-            const textarea = document.createElement('textarea');
-            textarea.value = outputText;
-            textarea.setAttribute('readonly', '');
-            textarea.style.position = 'absolute';
-            textarea.style.left = '-9999px';
-            document.body.appendChild(textarea);
-            
-            // Select and copy the text
-            textarea.select();
-            document.execCommand('copy');
-            
-            // Remove the temporary element
-            document.body.removeChild(textarea);
-            
-            // Show feedback
-            const originalText = this.innerHTML;
-            this.innerHTML = '<span class="icon"><i class="fas fa-check"></i></span><span>Copied!</span>';
-            
-            setTimeout(() => {
-                this.innerHTML = originalText;
-            }, 2000);
+            // Use modern clipboard API if available
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(outputText).then(() => {
+                    showCopyFeedback(this);
+                });
+            } else {
+                // Fallback for older browsers
+                const textarea = document.createElement('textarea');
+                textarea.value = outputText;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'absolute';
+                textarea.style.left = '-9999px';
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                showCopyFeedback(this);
+            }
         });
     }
     
-    // Format code output with syntax highlighting for comments
-    const codeOutput = document.querySelector('.code-output');
-    if (codeOutput) {
-        const content = codeOutput.innerHTML;
-        if (content) {
-            // Split the content into lines
-            const lines = content.split('\n');
-            let formattedContent = '';
-            let inHeaderSection = false;
-            
-            // Process each line
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                
-                // Check if this is a separator line (all #)
-                if (line.trim().match(/^#{5,}$/)) {
-                    formattedContent += `<span class="code-separator">${line}</span>\n`;
-                    
-                    // Toggle header section state
-                    if (!inHeaderSection) {
-                        inHeaderSection = true;
-                    } else {
-                        inHeaderSection = false;
-                    }
-                }
-                // Check if this is a header line (### Script - name)
-                else if (line.trim().match(/^###\s+Script\s+-\s+.+$/)) {
-                    formattedContent += `<span class="code-header">${line}</span>\n`;
-                }
-                // Check if this is a comment line (starts with #)
-                else if (line.trim().startsWith('#')) {
-                    if (inHeaderSection) {
-                        formattedContent += `<span class="code-header">${line}</span>\n`;
-                    } else {
-                        formattedContent += `<span class="code-comment">${line}</span>\n`;
-                    }
-                }
-                // Regular line
-                else {
-                    formattedContent += line + '\n';
-                }
-            }
-            
-            // Update the content with formatted version
-            codeOutput.innerHTML = formattedContent;
-        }
+    function showCopyFeedback(button) {
+        const originalText = button.innerHTML;
+        button.innerHTML = '<span class="icon"><i class="fas fa-check"></i></span><span>Copied!</span>';
+        
+        setTimeout(() => {
+            button.innerHTML = originalText;
+        }, 2000);
     }
     
     // Handle conditional fields
@@ -436,6 +1202,307 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Run once on page load to set initial state
     updateConditionalFields();
+    
+    // IP Helper functionality
+    initIPHelper();
 });
+
+// IP Helper Functions
+let currentIPField = null;
+
+function initIPHelper() {
+    // Add input event listeners to all input fields
+    const inputs = document.querySelectorAll('#script-form input[type="text"], #script-form input[type="url"], #script-form input[type="email"]');
+    
+    inputs.forEach(input => {
+        input.addEventListener('input', function() {
+            checkForIPAddress(this);
+        });
+        
+        // Check on initial load
+        checkForIPAddress(input);
+    });
+}
+
+function checkForIPAddress(input) {
+    const value = input.value.trim();
+    const fieldName = input.name;
+    const ipHelperLink = document.querySelector(`.ip-helper-link[data-field="${fieldName}"]`);
+    
+    if (!ipHelperLink) return;
+    
+    // Regular expression for IP address detection (partial or complete)
+    const ipPattern = /^(\d{1,3}\.){0,3}\d{0,3}$/;
+    const completeIPPattern = /^(\d{1,3}\.){3}\d{1,3}$/;
+    
+    if (ipPattern.test(value) && value.length > 0) {
+        ipHelperLink.classList.add('is-active');
+        
+        // If it's a complete IP, pre-fill the helper
+        if (completeIPPattern.test(value)) {
+            document.getElementById('ip-helper-address').value = value;
+        }
+    } else {
+        ipHelperLink.classList.remove('is-active');
+    }
+}
+
+function openIPHelper(fieldName) {
+    currentIPField = fieldName;
+    const input = document.querySelector(`input[name="${fieldName}"]`);
+    
+    if (input && input.value) {
+        document.getElementById('ip-helper-address').value = input.value;
+    }
+    
+    document.getElementById('ip-helper-modal').classList.add('is-active');
+}
+
+function closeIPHelper() {
+    document.getElementById('ip-helper-modal').classList.remove('is-active');
+    document.getElementById('ip-calc-result').style.display = 'none';
+}
+
+function calculateIPInfo() {
+    const ipAddress = document.getElementById('ip-helper-address').value.trim();
+    const subnetInput = document.getElementById('ip-helper-subnet').value.trim();
+    
+    if (!ipAddress || !isValidIP(ipAddress)) {
+        alert('Please enter a valid IP address');
+        return;
+    }
+    
+    let cidr = 0;
+    let subnetMask = '';
+    
+    // Check if input is CIDR notation
+    if (subnetInput.startsWith('/')) {
+        cidr = parseInt(subnetInput.substring(1));
+        if (isNaN(cidr) || cidr < 0 || cidr > 32) {
+            alert('Please enter a valid CIDR (0-32)');
+            return;
+        }
+        subnetMask = cidrToSubnet(cidr);
+    } else {
+        // Assume it's a subnet mask
+        if (!isValidIP(subnetInput)) {
+            alert('Please enter a valid subnet mask or CIDR notation');
+            return;
+        }
+        subnetMask = subnetInput;
+        cidr = subnetToCidr(subnetMask);
+    }
+    
+    // Calculate network information
+    const ipParts = ipAddress.split('.').map(Number);
+    const maskParts = subnetMask.split('.').map(Number);
+    
+    // Calculate network address
+    const networkParts = ipParts.map((ip, i) => ip & maskParts[i]);
+    const networkAddress = networkParts.join('.');
+    
+    // Calculate broadcast address
+    const invertedMask = maskParts.map(m => 255 - m);
+    const broadcastParts = networkParts.map((n, i) => n | invertedMask[i]);
+    const broadcastAddress = broadcastParts.join('.');
+    
+    // Calculate first and last usable IPs
+    const firstUsableParts = [...networkParts];
+    firstUsableParts[3] += 1;
+    const firstUsable = firstUsableParts.join('.');
+    
+    const lastUsableParts = [...broadcastParts];
+    lastUsableParts[3] -= 1;
+    const lastUsable = lastUsableParts.join('.');
+    
+    // Calculate number of hosts
+    const hostBits = 32 - cidr;
+    const totalHosts = Math.pow(2, hostBits);
+    const usableHosts = totalHosts - 2; // Subtract network and broadcast
+    
+    // Display results
+    document.getElementById('result-network').textContent = networkAddress;
+    document.getElementById('result-subnet').textContent = subnetMask;
+    document.getElementById('result-cidr').textContent = `/${cidr}`;
+    document.getElementById('result-broadcast').textContent = broadcastAddress;
+    document.getElementById('result-first').textContent = cidr === 32 ? 'N/A' : firstUsable;
+    document.getElementById('result-last').textContent = cidr === 32 ? 'N/A' : lastUsable;
+    document.getElementById('result-hosts').textContent = totalHosts.toLocaleString();
+    document.getElementById('result-usable').textContent = cidr >= 31 ? '0' : usableHosts.toLocaleString();
+    
+    document.getElementById('ip-calc-result').style.display = 'block';
+    
+    // If a field is selected, offer to use the calculated value
+    if (currentIPField) {
+        const useButton = document.createElement('button');
+        useButton.className = 'button is-small is-info mt-2';
+        useButton.textContent = 'Use Network Address in Form';
+        useButton.onclick = function() {
+            const input = document.querySelector(`input[name="${currentIPField}"]`);
+            if (input) {
+                input.value = networkAddress + '/' + cidr;
+                closeIPHelper();
+            }
+        };
+        
+        // Add button if not already present
+        const existingButton = document.querySelector('#ip-calc-result .button');
+        if (!existingButton) {
+            document.getElementById('ip-calc-result').appendChild(useButton);
+        }
+    }
+}
+
+function isValidIP(ip) {
+    const parts = ip.split('.');
+    if (parts.length !== 4) return false;
+    
+    return parts.every(part => {
+        const num = parseInt(part);
+        return !isNaN(num) && num >= 0 && num <= 255;
+    });
+}
+
+function cidrToSubnet(cidr) {
+    const mask = [];
+    for (let i = 0; i < 4; i++) {
+        const bits = Math.min(8, Math.max(0, cidr - (i * 8)));
+        mask.push(256 - Math.pow(2, 8 - bits));
+    }
+    return mask.join('.');
+}
+
+function subnetToCidr(subnet) {
+    const parts = subnet.split('.').map(Number);
+    let cidr = 0;
+    
+    for (const part of parts) {
+        let bits = 0;
+        let value = part;
+        
+        while (value > 0) {
+            if (value & 128) bits++;
+            value = (value << 1) & 255;
+        }
+        cidr += bits;
+    }
+    
+    return cidr;
+}
+
+// Insert and Copy Functions
+function insertValue(elementId) {
+    const resultElement = document.getElementById(elementId);
+    if (!resultElement || !currentIPField) {
+        console.error('Cannot insert value: missing result element or current field');
+        return;
+    }
+    
+    const value = resultElement.textContent.trim();
+    if (value === '-' || value === 'N/A') {
+        alert('No value to insert');
+        return;
+    }
+    
+    // Find the target input field
+    const input = document.querySelector(`input[name="${currentIPField}"]`);
+    if (input) {
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        
+        // Show success feedback
+        showInsertFeedback(resultElement);
+    } else {
+        console.error(`Could not find input field: ${currentIPField}`);
+    }
+}
+
+function copyValue(elementId) {
+    const resultElement = document.getElementById(elementId);
+    if (!resultElement) {
+        console.error('Cannot copy value: missing result element');
+        return;
+    }
+    
+    const value = resultElement.textContent.trim();
+    if (value === '-' || value === 'N/A') {
+        alert('No value to copy');
+        return;
+    }
+    
+    // Use the Clipboard API if available
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(value).then(() => {
+            showCopyFeedback(resultElement);
+        }).catch(err => {
+            console.error('Failed to copy to clipboard:', err);
+            fallbackCopyText(value);
+        });
+    } else {
+        // Fallback for older browsers
+        fallbackCopyText(value);
+    }
+}
+
+function fallbackCopyText(text) {
+    // Create a temporary textarea element
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    
+    try {
+        textarea.select();
+        textarea.setSelectionRange(0, 99999); // For mobile devices
+        
+        if (document.execCommand('copy')) {
+            const resultElement = document.querySelector(`#${CSS.escape(text)}`);
+            showCopyFeedback();
+        } else {
+            alert('Copy failed. Please copy manually: ' + text);
+        }
+    } catch (err) {
+        console.error('Fallback copy failed:', err);
+        alert('Copy failed. Please copy manually: ' + text);
+    } finally {
+        document.body.removeChild(textarea);
+    }
+}
+
+function showInsertFeedback(element) {
+    const button = element.parentElement.querySelector('button[onclick*="insertValue"]');
+    if (button) {
+        const originalHTML = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-check"></i> Inserted';
+        button.style.backgroundColor = '#48c774';
+        button.style.color = 'white';
+        
+        setTimeout(() => {
+            button.innerHTML = originalHTML;
+            button.style.backgroundColor = '';
+            button.style.color = '';
+        }, 2000);
+    }
+}
+
+function showCopyFeedback(element) {
+    const button = element ? element.parentElement.querySelector('button[onclick*="copyValue"]') : null;
+    if (button) {
+        const originalHTML = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-check"></i> Copied';
+        button.style.backgroundColor = '#48c774';
+        button.style.color = 'white';
+        
+        setTimeout(() => {
+            button.innerHTML = originalHTML;
+            button.style.backgroundColor = '';
+            button.style.color = '';
+        }, 2000);
+    }
+}
+
+    // Close modal when clicking background
+    document.querySelector('#ip-helper-modal .modal-background').addEventListener('click', closeIPHelper);
 </script>
 {% endblock %} 
