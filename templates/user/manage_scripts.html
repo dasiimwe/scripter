@@ -1,0 +1,292 @@
+{% extends "base.html" %}
+
+{% block title %}Scripter - My Scripts{% endblock %}
+
+{% block head_extra %}
+<style>
+    .search-container {
+        margin-bottom: 1.5rem;
+    }
+    .pagination-container {
+        margin-top: 1.5rem;
+    }
+    .sort-icon {
+        margin-left: 0.25rem;
+        cursor: pointer;
+    }
+    .sort-icon:hover {
+        color: #3273dc;
+    }
+    .script-description {
+        max-width: 300px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .tag-list {
+        max-width: 200px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .empty-state {
+        text-align: center;
+        padding: 3rem 1rem;
+    }
+    .empty-state-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        color: #dbdbdb;
+    }
+    .script-actions {
+        min-width: 220px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="title">My Scripts</h1>
+    
+    <div class="level">
+        <div class="level-left">
+            <div class="level-item">
+                <div class="field has-addons">
+                    <div class="control">
+                        <input class="input" type="text" id="search-input" placeholder="Search scripts...">
+                    </div>
+                    <div class="control">
+                        <button class="button is-info" id="search-button">
+                            <span class="icon">
+                                <i class="fas fa-search"></i>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="level-right">
+            <div class="level-item">
+                <a href="{{ url_for('create_my_script') }}" class="button is-primary">
+                    <span class="icon">
+                        <i class="fas fa-plus"></i>
+                    </span>
+                    <span>Add New Script</span>
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    {% if scripts %}
+    <div class="table-container">
+        <table class="table is-fullwidth is-striped is-hoverable">
+            <thead>
+                <tr>
+                    <th>
+                        Name
+                        <span class="icon sort-icon" data-sort="name">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Description
+                        <span class="icon sort-icon" data-sort="description">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Category
+                        <span class="icon sort-icon" data-sort="category">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Status
+                        <span class="icon sort-icon" data-sort="status">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>
+                        Created
+                        <span class="icon sort-icon" data-sort="created">
+                            <i class="fas fa-sort"></i>
+                        </span>
+                    </th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for script in scripts %}
+                <tr class="script-row" 
+                    data-name="{{ script.name|lower }}" 
+                    data-description="{{ script.description|lower }}" 
+                    data-category="{{ script.category|lower }}"
+                    data-status="{{ script.status|lower }}"
+                    data-created="{{ script.created_at.strftime('%Y-%m-%d') }}">
+                    <td>{{ script.name }}</td>
+                    <td class="script-description" title="{{ script.description }}">{{ script.description }}</td>
+                    <td>{{ script.category }}</td>
+                    <td>
+                        {% if script.status == 'active' %}
+                        <span class="tag is-success">Active</span>
+                        {% elif script.status == 'draft' %}
+                        <span class="tag is-warning">Draft</span>
+                        {% elif script.status == 'archived' %}
+                        <span class="tag is-light">Archived</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ script.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td class="script-actions">
+                        <div class="buttons are-small">
+                            <a href="{{ url_for('edit_my_script', script_id=script.id) }}" class="button is-info is-outlined">
+                                <span class="icon is-small">
+                                    <i class="fas fa-edit"></i>
+                                </span>
+                                <span>Edit</span>
+                            </a>
+                            <a href="{{ url_for('script_preview', script_id=script.id) }}" class="button is-success is-outlined">
+                                <span class="icon is-small">
+                                    <i class="fas fa-eye"></i>
+                                </span>
+                                <span>Preview</span>
+                            </a>
+                            <button class="button is-danger is-outlined delete-script" data-script-id="{{ script.id }}" data-script-name="{{ script.name }}">
+                                <span class="icon is-small">
+                                    <i class="fas fa-trash"></i>
+                                </span>
+                                <span>Delete</span>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            <i class="fas fa-file-alt"></i>
+        </div>
+        <p class="subtitle">No scripts found</p>
+        <p>Get started by creating your first script</p>
+        <a href="{{ url_for('create_my_script') }}" class="button is-primary mt-4">
+            <span class="icon">
+                <i class="fas fa-plus"></i>
+            </span>
+            <span>Add New Script</span>
+        </a>
+    </div>
+    {% endif %}
+    
+    <!-- Delete Confirmation Modal -->
+    <div class="modal" id="delete-modal">
+        <div class="modal-background"></div>
+        <div class="modal-card">
+            <header class="modal-card-head">
+                <p class="modal-card-title">Confirm Delete</p>
+                <button class="delete" aria-label="close" id="close-modal"></button>
+            </header>
+            <section class="modal-card-body">
+                <p>Are you sure you want to delete the script "<span id="script-name-to-delete"></span>"?</p>
+                <p class="has-text-danger mt-2">This action cannot be undone.</p>
+            </section>
+            <footer class="modal-card-foot">
+                <form id="delete-form" method="POST">
+                    <button type="submit" class="button is-danger">Delete</button>
+                    <button type="button" class="button" id="cancel-delete">Cancel</button>
+                </form>
+            </footer>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Variables for pagination
+    const scriptRows = document.querySelectorAll('.script-row');
+    const itemsPerPageSelect = document.getElementById('items-per-page');
+    const paginationNumbers = document.getElementById('pagination-numbers');
+    const showingInfo = document.getElementById('showing-info');
+    
+    // Get stored items per page or default to 10
+    let itemsPerPage = parseInt(localStorage.getItem('userScriptsPerPage') || '10');
+    let currentPage = 1;
+    let currentSort = { column: null, direction: 'asc' };
+    
+    // Set the stored value in the select
+    if (itemsPerPageSelect) {
+        itemsPerPageSelect.value = itemsPerPage.toString();
+    }
+    
+    // Search functionality
+    const searchInput = document.getElementById('search-input');
+    const searchButton = document.getElementById('search-button');
+    
+    function performSearch() {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        
+        scriptRows.forEach(row => {
+            const name = row.getAttribute('data-name') || '';
+            const description = row.getAttribute('data-description') || '';
+            const category = row.getAttribute('data-category') || '';
+            const status = row.getAttribute('data-status') || '';
+            
+            const matches = 
+                name.includes(searchTerm) || 
+                description.includes(searchTerm) || 
+                category.includes(searchTerm) ||
+                status.includes(searchTerm);
+            
+            row.classList.toggle('is-hidden', !matches);
+        });
+        
+        currentPage = 1;
+        updatePagination();
+    }
+    
+    if (searchButton) {
+        searchButton.addEventListener('click', performSearch);
+    }
+    
+    if (searchInput) {
+        searchInput.addEventListener('keyup', function(e) {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+    }
+    
+    // Delete script functionality
+    const deleteButtons = document.querySelectorAll('.delete-script');
+    const deleteModal = document.getElementById('delete-modal');
+    const closeModalButton = document.getElementById('close-modal');
+    const cancelDeleteButton = document.getElementById('cancel-delete');
+    const deleteForm = document.getElementById('delete-form');
+    const scriptNameToDelete = document.getElementById('script-name-to-delete');
+    
+    deleteButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const scriptId = this.getAttribute('data-script-id');
+            const scriptName = this.getAttribute('data-script-name');
+            
+            deleteForm.action = `/my-scripts/${scriptId}/delete`;
+            scriptNameToDelete.textContent = scriptName;
+            deleteModal.classList.add('is-active');
+        });
+    });
+    
+    function closeModal() {
+        deleteModal.classList.remove('is-active');
+    }
+    
+    closeModalButton.addEventListener('click', closeModal);
+    cancelDeleteButton.addEventListener('click', closeModal);
+    
+    // Close modal when clicking on background
+    deleteModal.querySelector('.modal-background').addEventListener('click', closeModal);
+});
+</script>
+{% endblock %} 

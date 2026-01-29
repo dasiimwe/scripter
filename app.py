@@ -120,6 +120,18 @@ class AuthConfig(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class FormDraft(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    field_values = db.Column(db.JSON)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    script = db.relationship('Script', backref='drafts')
+    user = db.relationship('User', backref='form_drafts')
+
 # User loader for Flask-Login
 @login_manager.user_loader
 def load_user(user_id):
@@ -243,11 +255,12 @@ def create_script():
 @app.route('/admin/scripts/<int:script_id>/edit', methods=['GET', 'POST'])
 @login_required
 def edit_script(script_id):
-    if not current_user.is_admin:
-        flash('Access denied: Admin privileges required')
-        return redirect(url_for('index'))
-    
     script = Script.query.get_or_404(script_id)
+    
+    # Check if user owns the script or is admin
+    if not current_user.is_admin and script.creator_id != current_user.id:
+        flash('Access denied: You can only edit your own scripts')
+        return redirect(url_for('index'))
     
     if request.method == 'POST':
         script.name = request.form.get('name')
@@ -258,36 +271,34 @@ def edit_script(script_id):
         
         db.session.commit()
         flash(f'Script "{script.name}" updated successfully')
-        return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('my_scripts') if not current_user.is_admin else url_for('admin_dashboard'))
     
     return render_template('admin/edit_script.html', script=script)
 
 @app.route('/admin/scripts/<int:script_id>/template', methods=['GET', 'POST'])
 @login_required
 def edit_template(script_id):
-    if not current_user.is_admin:
-        flash('Access denied: Admin privileges required')
+    script = Script.query.get_or_404(script_id)
+    
+    # Check if user owns the script or is admin
+    if not current_user.is_admin and script.creator_id != current_user.id:
+        flash('Access denied: You can only edit your own scripts')
         return redirect(url_for('index'))
     
-    script = Script.query.get_or_404(script_id)
     template = script.template
     
     if request.method == 'POST':
         template_content = request.form.get('content')
         output_format = request.form.get('output_format')
         
-        # Increment version
         template.version += 1
         template.content = template_content
         template.output_format = output_format
         
         db.session.commit()
         flash('Template updated successfully')
-        
-        # Stay on the template page instead of redirecting to edit_script
         return redirect(url_for('edit_template', script_id=script_id))
     
-    # Define Jinja2 snippets for the template editor
     jinja_snippets = [
         {
             'name': 'If Condition',
@@ -311,17 +322,19 @@ def edit_template(script_id):
         }
     ]
     
-    return render_template('admin/edit_template.html', script=script, template=template, jinja_snippets=jinja_snippets)
+    return render_template('edit_template.html', script=script, template=template, jinja_snippets=jinja_snippets)
 
 @app.route('/scripts/<int:script_id>/fields', methods=['GET'])
 @login_required
 def manage_fields(script_id):
-    if not current_user.is_admin:
-        flash('Access denied. Admin privileges required.', 'error')
+    script = Script.query.get_or_404(script_id)
+    
+    # Check if user owns the script or is admin
+    if not current_user.is_admin and script.creator_id != current_user.id:
+        flash('Access denied: You can only edit your own scripts')
         return redirect(url_for('index'))
     
-    script = Script.query.get_or_404(script_id)
-    return render_template('admin/manage_fields.html', script=script)
+    return render_template('manage_fields.html', script=script)
 
 @app.route('/scripts/<int:script_id>/fields/add', methods=['GET', 'POST'])
 @login_required
@@ -1190,11 +1203,12 @@ def admin_scripts():
 @app.route('/admin/scripts/<int:script_id>/delete', methods=['POST'])
 @login_required
 def delete_script(script_id):
-    if not current_user.is_admin:
-        flash('Access denied: Admin privileges required')
-        return redirect(url_for('index'))
-    
     script = Script.query.get_or_404(script_id)
+    
+    # Check if user owns the script or is admin
+    if not current_user.is_admin and script.creator_id != current_user.id:
+        flash('Access denied: You can only delete your own scripts')
+        return redirect(url_for('index'))
     
     try:
         # Delete the script (cascade will handle related records)
@@ -1207,5 +1221,217 @@ def delete_script(script_id):
     
     return redirect(url_for('admin_scripts'))
 
+# User script management routes
+@app.route('/my-scripts')
+@login_required
+def my_scripts():
+    scripts = Script.query.filter_by(creator_id=current_user.id).all()
+    return render_template('user/manage_scripts.html', scripts=scripts)
+
+@app.route('/my-scripts/new', methods=['GET', 'POST'])
+@login_required
+def create_my_script():
+    if request.method == 'POST':
+        name = request.form.get('name')
+        description = request.form.get('description')
+        category = request.form.get('category')
+        tags = request.form.get('tags')
+        
+        script = Script(
+            name=name,
+            description=description,
+            category=category,
+            tags=tags,
+            creator_id=current_user.id,
+            status='draft'  # Default to draft for user-created scripts
+        )
+        
+        db.session.add(script)
+        db.session.commit()
+        
+        # Create empty template
+        template = Template(
+            script_id=script.id,
+            content="",
+            version=1
+        )
+        
+        db.session.add(template)
+        db.session.commit()
+        
+        flash(f'Script "{name}" created successfully')
+        return redirect(url_for('edit_my_script', script_id=script.id))
+    
+    return render_template('user/create_script.html')
+
+@app.route('/my-scripts/<int:script_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_my_script(script_id):
+    script = Script.query.get_or_404(script_id)
+    
+    # Check if user owns the script
+    if script.creator_id != current_user.id:
+        flash('Access denied: You can only edit your own scripts')
+        return redirect(url_for('my_scripts'))
+    
+    if request.method == 'POST':
+        script.name = request.form.get('name')
+        script.description = request.form.get('description')
+        script.category = request.form.get('category')
+        script.tags = request.form.get('tags')
+        script.status = request.form.get('status')
+        
+        db.session.commit()
+        flash(f'Script "{script.name}" updated successfully')
+        return redirect(url_for('my_scripts'))
+    
+    return render_template('user/edit_script.html', script=script)
+
+@app.route('/my-scripts/<int:script_id>/template', methods=['GET', 'POST'])
+@login_required
+def edit_my_template(script_id):
+    script = Script.query.get_or_404(script_id)
+    
+    # Check if user owns the script
+    if script.creator_id != current_user.id:
+        flash('Access denied: You can only edit your own scripts')
+        return redirect(url_for('my_scripts'))
+    
+    template = script.template
+    
+    if request.method == 'POST':
+        template_content = request.form.get('content')
+        output_format = request.form.get('output_format')
+        
+        template.version += 1
+        template.content = template_content
+        template.output_format = output_format
+        
+        db.session.commit()
+        flash('Template updated successfully')
+        return redirect(url_for('edit_my_template', script_id=script_id))
+    
+    jinja_snippets = [
+        {
+            'name': 'If Condition',
+            'code': '{% if condition %}\n    content\n{% endif %}'
+        },
+        {
+            'name': 'If-Else Condition',
+            'code': '{% if condition %}\n    content if true\n{% else %}\n    content if false\n{% endif %}'
+        },
+        {
+            'name': 'If-Elif-Else Condition',
+            'code': '{% if condition1 %}\n    content if condition1 is true\n{% elif condition2 %}\n    content if condition2 is true\n{% else %}\n    content if all conditions are false\n{% endif %}'
+        },
+        {
+            'name': 'Variable',
+            'code': '{{ variable_name }}'
+        },
+        {
+            'name': 'For Loop',
+            'code': '{% for item in items %}\n    {{ item }}\n{% endfor %}'
+        }
+    ]
+    
+    return render_template('user/edit_template.html', script=script, template=template, jinja_snippets=jinja_snippets)
+
+@app.route('/my-scripts/<int:script_id>/fields', methods=['GET'])
+@login_required
+def manage_my_fields(script_id):
+    script = Script.query.get_or_404(script_id)
+    
+    # Check if user owns the script
+    if script.creator_id != current_user.id:
+        flash('Access denied: You can only edit your own scripts')
+        return redirect(url_for('my_scripts'))
+    
+    return render_template('user/manage_fields.html', script=script)
+
+@app.route('/my-scripts/<int:script_id>/delete', methods=['POST'])
+@login_required
+def delete_my_script(script_id):
+    script = Script.query.get_or_404(script_id)
+    
+    # Check if user owns the script
+    if script.creator_id != current_user.id:
+        flash('Access denied: You can only delete your own scripts')
+        return redirect(url_for('my_scripts'))
+    
+    try:
+        db.session.delete(script)
+        db.session.commit()
+        flash(f'Script "{script.name}" deleted successfully', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error deleting script: {str(e)}', 'error')
+    
+    return redirect(url_for('my_scripts'))
+
+@app.route('/scripts/<int:script_id>/save-draft', methods=['POST'])
+@login_required
+def save_form_draft(script_id):
+    script = Script.query.get_or_404(script_id)
+    form_data = request.form.to_dict()
+    
+    # Find existing draft or create new one
+    draft = FormDraft.query.filter_by(
+        script_id=script_id,
+        user_id=current_user.id
+    ).first()
+    
+    if not draft:
+        draft = FormDraft(
+            script_id=script_id,
+            user_id=current_user.id,
+            field_values=form_data
+        )
+        db.session.add(draft)
+    else:
+        draft.field_values = form_data
+    
+    db.session.commit()
+    return jsonify({'status': 'success'})
+
+@app.route('/scripts/<int:script_id>/load-draft', methods=['GET'])
+@login_required
+def load_form_draft(script_id):
+    script = Script.query.get_or_404(script_id)
+    draft = FormDraft.query.filter_by(
+        script_id=script_id,
+        user_id=current_user.id
+    ).first()
+    
+    print(f"Loading draft for script {script_id} and user {current_user.id}")  # Debug print
+    print(f"Draft found: {draft is not None}")  # Debug print
+    
+    if draft:
+        print(f"Draft values: {draft.field_values}")  # Debug print
+        return jsonify({
+            'status': 'success',
+            'data': draft.field_values
+        })
+    return jsonify({'status': 'not_found'})
+
+@app.route('/scripts/<int:script_id>/submissions', methods=['GET'])
+@login_required
+def get_script_submissions(script_id):
+    script = Script.query.get_or_404(script_id)
+    
+    # Get submissions for this script by the current user
+    submissions = FormSubmission.query.filter_by(
+        script_id=script_id,
+        user_id=current_user.id
+    ).order_by(FormSubmission.submission_date.desc()).all()
+    
+    # Format submissions for the dropdown
+    submission_list = [{
+        'id': sub.id,
+        'date': sub.submission_date.strftime('%Y-%m-%d %H:%M:%S'),
+        'values': json.loads(sub.field_values) if isinstance(sub.field_values, str) else sub.field_values
+    } for sub in submissions]
+    
+    return jsonify({'submissions': submission_list})
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5500)

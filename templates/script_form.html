@@ -243,32 +243,59 @@
     
     <div class="form-output-container">
         <div class="form-container">
+            <div class="field is-grouped is-grouped-right mb-4">
+                <div class="control">
+                    <div class="select">
+                        <select id="load-submission">
+                            <option value="">Load previous submission...</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="control">
+                    <button id="load-draft" class="button is-info">
+                        <span class="icon">
+                            <i class="fas fa-file-alt"></i>
+                        </span>
+                        <span>Load Draft</span>
+                    </button>
+                </div>
+            </div>
+
             <form id="script-form" method="POST" action="{{ form_action }}">
                 {% include 'partials/script_form_content.html' %}
                 
                 <div class="form-actions">
-                    <button type="submit" class="button is-primary is-small">
-                        <span class="icon is-small">
-                            <i class="fas fa-magic"></i>
-                        </span>
-                        <span>Generate Script</span>
-                    </button>
-                    
-                    {% if is_preview %}
-                    <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-light is-small">
-                        <span class="icon is-small">
-                            <i class="fas fa-arrow-left"></i>
-                        </span>
-                        <span>Back to Editor</span>
-                    </a>
-                    {% else %}
-                    <a href="{{ url_for('index') }}" class="button is-light is-small">
-                        <span class="icon is-small">
-                            <i class="fas fa-arrow-left"></i>
-                        </span>
-                        <span>Back to Scripts</span>
-                    </a>
-                    {% endif %}
+                    <div class="buttons">
+                        <button type="submit" class="button is-primary is-small">
+                            <span class="icon is-small">
+                                <i class="fas fa-magic"></i>
+                            </span>
+                            <span>Generate Script</span>
+                        </button>
+                        
+                        <button type="button" id="load-draft" class="button is-info is-small">
+                            <span class="icon is-small">
+                                <i class="fas fa-history"></i>
+                            </span>
+                            <span>Load Saved Values</span>
+                        </button>
+                        
+                        {% if is_preview %}
+                        <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-light is-small">
+                            <span class="icon is-small">
+                                <i class="fas fa-arrow-left"></i>
+                            </span>
+                            <span>Back to Editor</span>
+                        </a>
+                        {% else %}
+                        <a href="{{ url_for('index') }}" class="button is-light is-small">
+                            <span class="icon is-small">
+                                <i class="fas fa-arrow-left"></i>
+                            </span>
+                            <span>Back to Scripts</span>
+                        </a>
+                        {% endif %}
+                    </div>
                 </div>
             </form>
         </div>
