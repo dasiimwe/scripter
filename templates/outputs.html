@@ -1,0 +1,94 @@
+{% extends "base_op.html" %}
+{% block title %}Outputs · Scripter{% endblock %}
+{% block content %}
+<div class="outputs-page">
+  <div class="outputs-head">
+    <div>
+      <h1>Outputs</h1>
+      <div class="count">
+        {{ pagination.total }} total
+        {% if batch %}· filtered by batch <span style="color:var(--accent-ink)">{{ batch }}</span>{% endif %}
+      </div>
+    </div>
+    <a href="{{ url_for('workbench') }}" class="btn btn-ghost">Back to workbench</a>
+  </div>
+
+  <form method="get" action="{{ url_for('outputs_list') }}" class="outputs-filters">
+    <input type="text" name="search" value="{{ search }}" placeholder="Search output names…">
+    <input type="text" name="batch" value="{{ batch }}" placeholder="Batch id…">
+    <select name="per_page">
+      {% for n in [10, 25, 50, 100] %}
+        <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}/page</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-ghost">Filter</button>
+  </form>
+
+  {% if outputs %}
+    <table class="outputs">
+      {% macro sort_th(key, label, width='auto') -%}
+        {% set is_sorted = current_sort == key %}
+        {% set next_order = 'asc' if (is_sorted and current_order == 'desc') else 'desc' %}
+        <th class="{% if is_sorted %}sorted{% endif %}" style="width:{{ width }}">
+          <a href="{{ url_for('outputs_list', sort=key, order=next_order, search=search, batch=batch, per_page=per_page) }}">
+            {{ label }}
+            {% if is_sorted %}<span class="arrow">{{ '↓' if current_order == 'desc' else '↑' }}</span>{% endif %}
+          </a>
+        </th>
+      {%- endmacro %}
+      <thead><tr>
+        {{ sort_th('name',        'Name') }}
+        {{ sort_th('batch',       'Batch', '10%') }}
+        <th style="width:15%">Source script</th>
+        {{ sort_th('created_at',  'Created',  '15%') }}
+        {{ sort_th('modified_at', 'Modified', '15%') }}
+        <th style="width:18%"></th>
+      </tr></thead>
+      <tbody>
+        {% for o in outputs %}
+          <tr>
+            <td class="name"><a href="{{ url_for('outputs_view', output_id=o.id) }}">{{ o.name }}</a></td>
+            <td>{% if o.batch_id %}<span class="batch">{{ o.batch_id }}</span>{% else %}—{% endif %}</td>
+            <td class="meta">
+              {% if o.original_script %}
+                <a href="{{ url_for('workbench', script_id=o.original_script.id) }}">{{ o.original_script.name }}</a>
+              {% else %}—{% endif %}
+            </td>
+            <td class="meta">{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="meta">{{ o.modified_at.strftime('%Y-%m-%d %H:%M') }}</td>
+            <td class="actions">
+              <a href="{{ url_for('outputs_view', output_id=o.id) }}">view</a>
+              <a href="{{ url_for('outputs_edit', output_id=o.id) }}">edit</a>
+              <a href="{{ url_for('outputs_download', output_id=o.id) }}">download</a>
+              <form method="post" action="{{ url_for('outputs_delete', output_id=o.id) }}"
+                    style="display:inline" onsubmit="return confirm('Delete this output?');">
+                <button type="submit" class="del">delete</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if pagination.pages > 1 %}
+      <nav class="pagination" aria-label="Output pages">
+        {% if pagination.has_prev %}
+          <a href="{{ url_for('outputs_list', page=pagination.prev_num, sort=current_sort, order=current_order, search=search, batch=batch, per_page=per_page) }}">prev</a>
+        {% else %}<span class="disabled">prev</span>{% endif %}
+        {% for p in pagination.iter_pages(left_edge=1, left_current=1, right_current=2, right_edge=1) %}
+          {% if p %}
+            {% if p == pagination.page %}<span class="here">{{ p }}</span>
+            {% else %}<a href="{{ url_for('outputs_list', page=p, sort=current_sort, order=current_order, search=search, batch=batch, per_page=per_page) }}">{{ p }}</a>{% endif %}
+          {% else %}<span class="disabled">…</span>{% endif %}
+        {% endfor %}
+        {% if pagination.has_next %}
+          <a href="{{ url_for('outputs_list', page=pagination.next_num, sort=current_sort, order=current_order, search=search, batch=batch, per_page=per_page) }}">next</a>
+        {% else %}<span class="disabled">next</span>{% endif %}
+      </nav>
+    {% endif %}
+
+  {% else %}
+    <div class="outputs-empty">No outputs match. Generate one from a script's Run tab.</div>
+  {% endif %}
+</div>
+{% endblock %}

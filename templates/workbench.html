@@ -6,15 +6,21 @@
   <title>{% if selected %}{{ selected.name }} · {% endif %}Scripter</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/workbench.css') }}">
+  {% if selected and tab == 'template' %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/codemirror.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/addon/dialog/dialog.css') }}">
+  {% endif %}
+  {% if selected and tab == 'details' and can_edit(current_user, selected) %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='vendor/trix/trix.css') }}">
+  {% endif %}
   <script>
-    // Apply stored theme before paint to prevent flash of unstyled theme.
     (function () {
       try {
         var t = localStorage.getItem('scripter.theme');
         if (t === 'operator' || t === 'datasheet') {
           document.documentElement.setAttribute('data-theme', t);
         }
-      } catch (e) { /* localStorage unavailable — default theme wins */ }
+      } catch (e) {}
     })();
   </script>
   <script src="{{ url_for('static', filename='vendor/htmx/htmx.min.js') }}" defer></script>
@@ -31,6 +37,7 @@
   </div>
   {% include 'partials/theme_selector.html' %}
   <nav>
+    <a href="{{ url_for('outputs_list') }}">Outputs</a>
     {% if can_admin(current_user) %}
       <a href="{{ url_for('admin_users') }}">Users</a>
       <a href="{{ url_for('auth_config') }}">Auth</a>
@@ -50,7 +57,6 @@
 {% endwith %}
 
 <div class="shell">
-
   <aside class="rail">
     <div class="rail-head">
       <div class="label">Scripts · {{ scripts|length }}</div>
@@ -58,11 +64,10 @@
       {% if user_can_create %}
       <form method="post" action="{{ url_for('workbench_new') }}" class="new-form">
         <input name="name" placeholder="New script name…" required>
-        <button type="submit" title="Create">New</button>
+        <button type="submit">New</button>
       </form>
       {% endif %}
     </div>
-
     {% if scripts %}
       <ul class="list">
         {% for s in scripts %}
@@ -70,8 +75,8 @@
             <a href="{{ url_for('workbench', script_id=s.id) }}">
               <div class="name">{{ s.name }}</div>
               <div class="meta">
-                {{ s.category or 'uncategorized' }}
-                · <span class="status-{{ s.status }}">{{ s.status }}</span>
+                {{ s.category or 'uncategorized' }} ·
+                <span class="status-{{ s.status }}">{{ s.status }}</span>
               </div>
             </a>
           </li>
@@ -95,15 +100,16 @@
           <span>{{ selected.name }}</span>
           <span class="num">№ {{ '%04d' % selected.id }}</span>
         </h1>
-        {% if selected.description %}
-          <p class="subtitle">{{ selected.description }}</p>
-        {% endif %}
+        {% if selected.description %}<p class="subtitle">{{ selected.description }}</p>{% endif %}
 
         <nav class="tabs">
           <a class="tab {% if tab=='details' %}active{% endif %}"  href="{{ url_for('workbench', script_id=selected.id, tab='details') }}">Details</a>
           <a class="tab {% if tab=='fields' %}active{% endif %}"   href="{{ url_for('workbench', script_id=selected.id, tab='fields') }}">Fields</a>
           <a class="tab {% if tab=='template' %}active{% endif %}" href="{{ url_for('workbench', script_id=selected.id, tab='template') }}">Template</a>
           <a class="tab {% if tab=='run' %}active{% endif %}"      href="{{ url_for('workbench', script_id=selected.id, tab='run') }}">Run</a>
+          {% if editable %}
+          <a class="tab {% if tab=='history' %}active{% endif %}"  href="{{ url_for('workbench', script_id=selected.id, tab='history') }}">History</a>
+          {% endif %}
         </nav>
       </header>
 
@@ -128,8 +134,9 @@
               </div>
             </div>
             <div class="field">
-              <label>Description</label>
-              <textarea name="description">{{ selected.description or '' }}</textarea>
+              <label>Short description</label>
+              <textarea name="description" style="min-height:60px">{{ selected.description or '' }}</textarea>
+              <div class="hint">One-line summary shown in the list.</div>
             </div>
             <div class="field-row">
               <div class="field">
@@ -142,6 +149,12 @@
                 <div class="hint">Comma-separated.</div>
               </div>
             </div>
+
+            <div class="section-rule">Script instructions · rich-text</div>
+            <input id="instructions_raw" type="hidden" name="script_instructions" value="{{ selected.script_instructions or '' }}">
+            <trix-editor input="instructions_raw"></trix-editor>
+            <div class="hint">Shown to end users above the form on the Run tab.</div>
+
             <div class="actions">
               <button type="submit" class="btn">Save details</button>
               <form method="post" action="{{ url_for('workbench_delete', script_id=selected.id) }}"
@@ -151,15 +164,23 @@
               </form>
             </div>
           </form>
+          <script src="{{ url_for('static', filename='vendor/trix/trix.umd.min.js') }}"></script>
+          <script>
+            addEventListener('trix-file-accept', function (e) { e.preventDefault(); });
+          </script>
         {% else %}
           <p class="readonly-note">You have read-only access to this script.</p>
           <dl class="kv">
-            <dt>Status</dt>      <dd><span class="mono">{{ selected.status }}</span></dd>
-            <dt>Category</dt>    <dd>{{ selected.category or '—' }}</dd>
-            <dt>Tags</dt>        <dd>{{ selected.tags or '—' }}</dd>
-            <dt>Created</dt>     <dd><span class="mono">{{ selected.created_at.strftime('%Y-%m-%d %H:%M') }}</span></dd>
-            <dt>Modified</dt>    <dd><span class="mono">{{ selected.modified_at.strftime('%Y-%m-%d %H:%M') }}</span></dd>
+            <dt>Status</dt>   <dd><span class="mono">{{ selected.status }}</span></dd>
+            <dt>Category</dt> <dd>{{ selected.category or '—' }}</dd>
+            <dt>Tags</dt>     <dd>{{ selected.tags or '—' }}</dd>
+            <dt>Created</dt>  <dd><span class="mono">{{ selected.created_at.strftime('%Y-%m-%d %H:%M') }}</span></dd>
+            <dt>Modified</dt> <dd><span class="mono">{{ selected.modified_at.strftime('%Y-%m-%d %H:%M') }}</span></dd>
           </dl>
+          {% if selected.script_instructions %}
+            <div class="section-rule">Instructions</div>
+            <div class="instructions-render">{{ selected.script_instructions|safe }}</div>
+          {% endif %}
         {% endif %}
 
       {# ---------------- FIELDS ----------------- #}
@@ -167,17 +188,19 @@
         {% set fields = selected.form_fields|sort(attribute='display_order') %}
         <div class="section-rule">Form fields · {{ fields|length }}</div>
         {% if fields %}
-          <table class="grid">
+          <table class="grid" id="fields-table" data-script-id="{{ selected.id }}">
             <thead><tr>
-              <th style="width:25%">Variable</th>
-              <th style="width:35%">Label</th>
+              {% if editable %}<th style="width:28px"></th>{% endif %}
+              <th>Variable</th>
+              <th>Label</th>
               <th style="width:15%">Type</th>
               <th style="width:15%">Required</th>
               <th style="width:10%"></th>
             </tr></thead>
-            <tbody>
+            <tbody id="fields-body">
               {% for f in fields %}
-              <tr>
+              <tr data-field-id="{{ f.id }}">
+                {% if editable %}<td class="handle" title="Drag to reorder">⋮⋮</td>{% endif %}
                 <td class="name">{{ f.name }}</td>
                 <td>{{ f.label }}</td>
                 <td class="type">{{ f.field_type }}</td>
@@ -195,6 +218,31 @@
               {% endfor %}
             </tbody>
           </table>
+          {% if editable %}
+          <script src="{{ url_for('static', filename='vendor/sortablejs/Sortable.min.js') }}"></script>
+          <script>
+            (function () {
+              var body = document.getElementById('fields-body');
+              if (!body) return;
+              Sortable.create(body, {
+                handle: '.handle',
+                animation: 150,
+                ghostClass: 'sortable-ghost',
+                chosenClass: 'sortable-chosen',
+                dragClass:  'sortable-drag',
+                onEnd: function () {
+                  var ids = Array.from(body.querySelectorAll('tr[data-field-id]'))
+                                 .map(function (tr) { return { id: parseInt(tr.dataset.fieldId, 10) }; });
+                  fetch('{{ url_for("wb_reorder_fields", script_id=selected.id) }}', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fields: ids })
+                  }).catch(function (e) { console.error('reorder failed', e); });
+                }
+              });
+            })();
+          </script>
+          {% endif %}
         {% else %}
           <p class="readonly-note">No fields defined yet. Fields become inputs on the Run tab.</p>
         {% endif %}
@@ -246,26 +294,132 @@
       {# ---------------- TEMPLATE --------------- #}
       {% elif tab == 'template' %}
         {% if editable %}
-          <form method="post" action="{{ url_for('workbench_save_template', script_id=selected.id) }}">
+          <form method="post" id="tmpl-form" action="{{ url_for('workbench_save_template', script_id=selected.id) }}">
+            <div class="tmpl-actions">
+              <button type="button" class="btn btn-ghost" id="btn-validate">Validate</button>
+              <button type="button" class="btn btn-ghost" id="btn-detect">Detect variables</button>
+              <a href="{{ url_for('wb_export_template', script_id=selected.id) }}" class="btn btn-ghost">Export .txt</a>
+              <label style="margin-left:auto;display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-muted)">
+                <input type="checkbox" name="skip_var_check" value="1"> Skip undefined-var check
+              </label>
+            </div>
+            <div class="tmpl-result" id="tmpl-result"></div>
+            <div class="detect-list" id="detect-list"></div>
+
             <div class="field">
               <label>Jinja2 template</label>
-              <textarea name="content" class="code-edit" spellcheck="false">{{ selected.template.content if selected.template else '' }}</textarea>
-              <div class="hint">Use <code>{% raw %}{{ variable }}{% endraw %}</code> for substitution, <code>{% raw %}{% for x in list %}{% endraw %}</code> for loops, <code>{% raw %}{% if cond %}{% endraw %}</code> for conditionals.</div>
+              <textarea name="content" id="tmpl-content" spellcheck="false">{{ selected.template.content if selected.template else '' }}</textarea>
+              <div class="hint">Use <code>{% raw %}{{ variable }}{% endraw %}</code>, <code>{% raw %}{% for x in list %}{% endraw %}</code>, <code>{% raw %}{% if cond %}{% endraw %}</code>. Line numbers, bracket matching, and find (Ctrl/Cmd-F) available.</div>
             </div>
             <div class="field" style="max-width:300px">
               <label>Output format</label>
               <select name="output_format">
-                {% set fmt = selected.template.output_format if selected.template else 'Plain Text' %}
-                <option value="Plain Text" {% if fmt=='Plain Text' %}selected{% endif %}>Plain Text</option>
-                <option value="text"       {% if fmt=='text' %}selected{% endif %}>text</option>
-                <option value="html"       {% if fmt=='html' %}selected{% endif %}>html</option>
-                <option value="markdown"   {% if fmt=='markdown' %}selected{% endif %}>markdown</option>
+                {% set fmt = selected.template.output_format if selected.template else 'text' %}
+                <option value="text"     {% if fmt=='text' %}selected{% endif %}>text</option>
+                <option value="html"     {% if fmt=='html' %}selected{% endif %}>html</option>
+                <option value="markdown" {% if fmt=='markdown' %}selected{% endif %}>markdown</option>
               </select>
             </div>
             <div class="actions">
               <button type="submit" class="btn">Save template</button>
             </div>
           </form>
+
+          <script src="{{ url_for('static', filename='vendor/codemirror/codemirror.js') }}"></script>
+          <script src="{{ url_for('static', filename='vendor/codemirror/mode/xml/xml.js') }}"></script>
+          <script src="{{ url_for('static', filename='vendor/codemirror/mode/javascript/javascript.js') }}"></script>
+          <script src="{{ url_for('static', filename='vendor/codemirror/mode/css/css.js') }}"></script>
+          <script src="{{ url_for('static', filename='vendor/codemirror/mode/htmlmixed/htmlmixed.js') }}"></script>
+          <script src="{{ url_for('static', filename='vendor/codemirror/mode/jinja2/jinja2.js') }}"></script>
+          <script src="{{ url_for('static', filename='vendor/codemirror/addon/edit/matchbrackets.js') }}"></script>
+          <script src="{{ url_for('static', filename='vendor/codemirror/addon/edit/closebrackets.js') }}"></script>
+          <script src="{{ url_for('static', filename='vendor/codemirror/addon/search/searchcursor.js') }}"></script>
+          <script src="{{ url_for('static', filename='vendor/codemirror/addon/search/search.js') }}"></script>
+          <script src="{{ url_for('static', filename='vendor/codemirror/addon/dialog/dialog.js') }}"></script>
+          <script>
+            (function () {
+              var ta = document.getElementById('tmpl-content');
+              if (!ta) return;
+              var cm = CodeMirror.fromTextArea(ta, {
+                mode: 'jinja2',
+                lineNumbers: true,
+                matchBrackets: true,
+                autoCloseBrackets: true,
+                indentUnit: 2,
+                tabSize: 2,
+                lineWrapping: false,
+              });
+              document.getElementById('tmpl-form').addEventListener('submit', function () { cm.save(); });
+
+              var result = document.getElementById('tmpl-result');
+              var list   = document.getElementById('detect-list');
+              function show(cls, text) {
+                result.className = 'tmpl-result ' + cls;
+                result.style.display = 'block';
+                result.textContent = text;
+              }
+              function clearList() {
+                while (list.firstChild) list.removeChild(list.firstChild);
+              }
+              function postJSON(url, body) {
+                return fetch(url, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(body),
+                }).then(function (r) { return r.json(); });
+              }
+
+              document.getElementById('btn-validate').addEventListener('click', function () {
+                cm.save();
+                postJSON('{{ url_for("wb_validate_template", script_id=selected.id) }}',
+                         { template_content: ta.value })
+                  .then(function (d) {
+                    show(d.valid ? 'ok' : 'err', d.message || (d.valid ? 'OK' : 'Error'));
+                  });
+              });
+
+              document.getElementById('btn-detect').addEventListener('click', function () {
+                cm.save();
+                clearList();
+                postJSON('{{ url_for("wb_detect_variables", script_id=selected.id) }}',
+                         { template_content: ta.value })
+                  .then(function (d) {
+                    if (!d.variables || d.variables.length === 0) {
+                      show('info', 'No {{ variable }} references found.');
+                      return;
+                    }
+                    show('info',
+                      'Variables found: ' + d.variables.length +
+                      ' · existing: ' + d.existing.length +
+                      ' · missing: ' + d.missing.length + (d.missing.length ? ' — click + to add.' : ''));
+                    d.existing.forEach(function (v) {
+                      var chip = document.createElement('span');
+                      chip.className = 'chip';
+                      chip.textContent = v + ' · field exists';
+                      list.appendChild(chip);
+                    });
+                    d.missing.forEach(function (v) {
+                      var chip = document.createElement('span');
+                      chip.className = 'chip';
+                      chip.appendChild(document.createTextNode(v + ' · missing '));
+                      var btn = document.createElement('button');
+                      btn.type = 'button';
+                      btn.textContent = '+ add field';
+                      btn.addEventListener('click', function () {
+                        postJSON('{{ url_for("wb_add_variable_field", script_id=selected.id) }}',
+                                 { variable_name: v })
+                          .then(function (r) {
+                            if (r.success) { chip.textContent = v + ' · field added'; }
+                            else { btn.textContent = 'failed: ' + (r.error || ''); }
+                          });
+                      });
+                      chip.appendChild(btn);
+                      list.appendChild(chip);
+                    });
+                  });
+              });
+            })();
+          </script>
         {% else %}
           <p class="readonly-note">Read-only. Template source is shown below.</p>
           <pre class="code-edit" style="white-space:pre-wrap">{{ selected.template.content if selected.template else '' }}</pre>
@@ -273,8 +427,40 @@
 
       {# ---------------- RUN -------------------- #}
       {% elif tab == 'run' %}
+        {% set run_mode = request.args.get('mode', 'once') %}
         {% set fields = selected.form_fields|sort(attribute='display_order') %}
-        {% if fields %}
+
+        {% if selected.script_instructions %}
+          <div class="instructions-render">{{ selected.script_instructions|safe }}</div>
+        {% endif %}
+
+        <nav class="run-mode-toggle">
+          <a href="{{ url_for('workbench', script_id=selected.id, tab='run', mode='once') }}"
+             class="{% if run_mode != 'bulk' %}active{% endif %}">Run once</a>
+          <a href="{{ url_for('workbench', script_id=selected.id, tab='run', mode='bulk') }}"
+             class="{% if run_mode == 'bulk' %}active{% endif %}">Bulk from CSV</a>
+        </nav>
+
+        {% if run_mode == 'bulk' %}
+          {% if fields %}
+            <p class="op-help" style="font-family:var(--serif);font-style:italic;color:var(--ink-muted);margin-bottom:14px">
+              Upload a CSV with one column per field (variable names as headers). One script will be rendered per row, grouped into a single batch.
+            </p>
+            <a href="{{ url_for('wb_csv_template', script_id=selected.id) }}" class="btn btn-ghost">Download CSV template</a>
+            <form method="post" action="{{ url_for('wb_bulk_generate', script_id=selected.id) }}"
+                  enctype="multipart/form-data" style="margin-top:16px">
+              <div class="csv-drop">
+                <div>Drop a .csv file here, or choose one:</div>
+                <input type="file" name="csv_file" accept=".csv" required>
+              </div>
+              <div class="actions">
+                <button type="submit" class="btn btn-primary">Generate batch</button>
+              </div>
+            </form>
+          {% else %}
+            <p class="readonly-note">Add form fields first, then bulk-generate will be available.</p>
+          {% endif %}
+        {% elif fields %}
           <form hx-post="{{ url_for('workbench_run', script_id=selected.id) }}"
                 hx-target="#run-output" hx-swap="innerHTML">
             {% for f in fields %}
@@ -303,6 +489,13 @@
         {% endif %}
 
         <div id="run-output"></div>
+
+      {# ---------------- HISTORY --------------- #}
+      {% elif tab == 'history' and editable %}
+        <div hx-get="{{ url_for('wb_history_partial', script_id=selected.id) }}"
+             hx-trigger="load" hx-swap="innerHTML">
+          <p class="readonly-note">Loading history…</p>
+        </div>
       {% endif %}
 
         <div class="colophon">

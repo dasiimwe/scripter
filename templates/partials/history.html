@@ -1,0 +1,73 @@
+<form method="get" action="{{ url_for('workbench', script_id=script.id, tab='history') }}"
+      hx-get="{{ url_for('wb_history_partial', script_id=script.id) }}"
+      hx-trigger="submit, change from:select[name=type]"
+      hx-target="closest div" hx-swap="innerHTML"
+      class="history-filters">
+  <input type="text" name="search" value="{{ search }}" placeholder="Search descriptions, values, field names…">
+  <select name="type">
+    <option value="">All change types</option>
+    {% for t in change_types %}
+      <option value="{{ t }}" {% if t == type_filter %}selected{% endif %}>{{ CHANGE_TYPE_LABELS.get(t, t) }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn btn-ghost">Filter</button>
+</form>
+
+{% if not changes %}
+  <p class="readonly-note">No changes recorded yet.</p>
+{% else %}
+  {% for ch in changes %}
+    <div class="history-row">
+      <div class="meta">
+        <span class="tag">{{ CHANGE_TYPE_LABELS.get(ch.change_type, ch.change_type) }}</span>
+        {% if ch.field_name %}<span>{{ ch.field_name }}</span>{% endif %}
+        <span>{{ ch.change_date.strftime('%Y-%m-%d %H:%M') }}</span>
+        {% if ch.user %}<span>by {{ ch.user.username }}</span>{% endif %}
+      </div>
+      {% if ch.description %}<p class="desc">{{ ch.description }}</p>{% endif %}
+
+      {% if ch.diff %}
+        <div class="diff">
+          {% for line in ch.diff %}
+            <span class="line {{ line.type }}">{{ line.content or '' }}</span>
+          {% endfor %}
+        </div>
+      {% elif (ch.old_value or ch.new_value) and ch.change_type != 'template_edit' %}
+        <div class="detail">
+          {% if ch.old_value %}<div><span class="was">was:</span> <span class="mono">{{ ch.old_value }}</span></div>{% endif %}
+          {% if ch.new_value %}<div><span class="now">now:</span> <span class="mono">{{ ch.new_value }}</span></div>{% endif %}
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+
+  {% if pagination.pages > 1 %}
+    <nav class="pagination" aria-label="History pages">
+      {% if pagination.has_prev %}
+        <a href="{{ url_for('workbench', script_id=script.id, tab='history') }}"
+           hx-get="{{ url_for('wb_history_partial', script_id=script.id, page=pagination.prev_num, search=search, type=type_filter) }}"
+           hx-target="closest div" hx-swap="innerHTML">prev</a>
+      {% else %}
+        <span class="disabled">prev</span>
+      {% endif %}
+      {% for p in pagination.iter_pages(left_edge=1, left_current=1, right_current=2, right_edge=1) %}
+        {% if p %}
+          {% if p == pagination.page %}
+            <span class="here">{{ p }}</span>
+          {% else %}
+            <a href="#" hx-get="{{ url_for('wb_history_partial', script_id=script.id, page=p, search=search, type=type_filter) }}"
+               hx-target="closest div" hx-swap="innerHTML">{{ p }}</a>
+          {% endif %}
+        {% else %}
+          <span class="disabled">…</span>
+        {% endif %}
+      {% endfor %}
+      {% if pagination.has_next %}
+        <a href="#" hx-get="{{ url_for('wb_history_partial', script_id=script.id, page=pagination.next_num, search=search, type=type_filter) }}"
+           hx-target="closest div" hx-swap="innerHTML">next</a>
+      {% else %}
+        <span class="disabled">next</span>
+      {% endif %}
+    </nav>
+  {% endif %}
+{% endif %}

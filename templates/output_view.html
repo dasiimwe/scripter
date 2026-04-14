@@ -1,0 +1,36 @@
+{% extends "base_op.html" %}
+{% block title %}{{ output.name }} · Outputs{% endblock %}
+{% block content %}
+<div class="op-page">
+  <h1 class="op-title">{{ output.name }}</h1>
+  <p class="op-sub">
+    {% if output.original_script %}
+      from <a href="{{ url_for('workbench', script_id=output.original_script.id) }}">{{ output.original_script.name }}</a> ·
+    {% endif %}
+    {% if output.batch_id %}batch <span style="color:var(--accent-ink)">{{ output.batch_id }}</span> · {% endif %}
+    generated {{ output.created_at.strftime('%Y-%m-%d %H:%M') }}
+  </p>
+
+  <div class="actions" style="margin-bottom:18px">
+    <a href="{{ url_for('outputs_edit', output_id=output.id) }}" class="btn">Edit</a>
+    <a href="{{ url_for('outputs_download', output_id=output.id) }}" class="btn btn-ghost">Download .txt</a>
+    <a href="{{ url_for('outputs_list') }}" class="btn btn-ghost">Back to list</a>
+    <form method="post" action="{{ url_for('outputs_delete', output_id=output.id) }}"
+          style="display:inline; margin-left:auto" onsubmit="return confirm('Delete this output?');">
+      <button type="submit" class="btn btn-danger">Delete</button>
+    </form>
+  </div>
+
+  <pre class="run-output">{{ output.generated_content }}</pre>
+
+  {% if output.csv_row_data %}
+    <div class="section-rule" style="margin-top:26px">Input values</div>
+    <dl class="kv">
+      {% for k, v in (output.csv_row_data|from_json).items() %}
+        <dt>{{ k }}</dt>
+        <dd><span class="mono">{{ v or '—' }}</span></dd>
+      {% endfor %}
+    </dl>
+  {% endif %}
+</div>
+{% endblock %}

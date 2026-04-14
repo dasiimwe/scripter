@@ -1,5 +1,8 @@
 <div class="run-head">
-  <span class="label">Output · submission №{{ '%06d' % submission_id }}</span>
-  <a href="{{ url_for('download_submission', script_id=script.id, submission_id=submission_id) }}" class="btn btn-ghost" style="font-size:10.5px;padding:5px 12px">Download</a>
+  <span class="label">Output · №{{ '%06d' % output_id }}</span>
+  <span>
+    <a href="{{ url_for('outputs_view', output_id=output_id) }}" class="btn btn-ghost" style="font-size:10.5px;padding:5px 12px">View in library</a>
+    <a href="{{ url_for('outputs_download', output_id=output_id) }}" class="btn btn-ghost" style="font-size:10.5px;padding:5px 12px">Download</a>
+  </span>
 </div>
 <pre class="run-output">{{ output }}</pre>

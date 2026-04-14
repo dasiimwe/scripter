@@ -89,8 +89,9 @@
   </div>
   {% include 'partials/theme_selector.html' %}
   <nav>
-    {% if current_user.is_authenticated %}
+    {% if current_user.is_authenticated or not auth_enabled %}
       <a href="{{ url_for('workbench') }}">Workbench</a>
+      <a href="{{ url_for('outputs_list') }}">Outputs</a>
     {% endif %}
     {% if can_admin(current_user) %}
       <a href="{{ url_for('admin_users') }}">Users</a>
