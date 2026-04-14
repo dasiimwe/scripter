@@ -72,6 +72,8 @@
             <button type="submit">Create</button>
           </form>
         </div>
+        <a href="{{ url_for('wb_import_script') }}" class="rail-new-btn"
+           style="text-align:center;text-decoration:none;display:block">↓ Import script</a>
       {% endif %}
 
       <form method="get" action="{{ url_for('workbench', script_id=selected.id if selected else None) }}" style="display:flex;flex-direction:column;gap:6px">
@@ -213,6 +215,7 @@
 
             <div class="actions">
               <button type="submit" class="btn">Save details</button>
+              <a href="{{ url_for('wb_export_script', script_id=selected.id) }}" class="btn btn-ghost">Export</a>
               <button type="submit" class="btn btn-danger"
                       formaction="{{ url_for('workbench_delete', script_id=selected.id) }}"
                       onclick="return confirm('Delete this script and all its fields + submissions? This cannot be undone.');">

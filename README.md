@@ -30,18 +30,21 @@ First run creates `instance\scripter.db` (SQLite) automatically.
 
 ## Auth modes
 
-- **Open** — no login, anyone on the URL can manage every script. Good for trusted networks.
+- **Open** (default) — no login, anyone on the URL can manage every script. Good for trusted networks, labs, or localhost.
+- **Authenticated** — local accounts and/or TACACS+. Enable from the **Auth** settings page, or pick it during `/install` on a fresh instance. Admins manage users via the **Users** link in the top bar.
 
-  ```bash
-  # macOS / Linux
-  AUTH_ENABLED=false make run
-  ```
-  ```powershell
-  # Windows PowerShell
-  $env:AUTH_ENABLED = "false"; .venv\Scripts\python app.py
-  ```
+Force either mode at startup with an env var (overrides the DB setting):
 
-- **Authenticated** (default) — local accounts and/or TACACS+. Admins manage users and auth config via the **Users** and **Auth** links in the top bar. Toggle also available at `/admin/auth-config`.
+```bash
+# macOS / Linux
+AUTH_ENABLED=true  make run         # force auth on
+AUTH_ENABLED=false make run         # force auth off
+```
+```powershell
+# Windows PowerShell
+$env:AUTH_ENABLED = "true";  .venv\Scripts\python app.py
+$env:AUTH_ENABLED = "false"; .venv\Scripts\python app.py
+```
 
 ## What's in it
 

@@ -1,26 +1,61 @@
 {% extends "base_op.html" %}
-{% block title %}Edit {{ output.name }} · Outputs{% endblock %}
-{% block content %}
-<div class="op-page">
-  <h1 class="op-title">Edit output</h1>
-  <p class="op-sub">
-    {% if output.original_script %}from {{ output.original_script.name }} · {% endif %}
-    generated {{ output.created_at.strftime('%Y-%m-%d %H:%M') }}
-  </p>
 
-  <form method="post">
-    <div class="field">
+{% block title %}Edit {{ output.name }} · Outputs{% endblock %}
+
+{% block head_extra %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/codemirror.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/codemirror/addon/dialog/dialog.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="output-edit-page">
+  <header class="output-edit-head">
+    <h1 class="op-title">Edit output</h1>
+    <p class="op-sub">
+      {% if output.original_script %}from <span class="mono">{{ output.original_script.name }}</span> · {% endif %}
+      generated {{ output.created_at.strftime('%Y-%m-%d %H:%M') }}
+    </p>
+  </header>
+
+  <form method="post" id="output-edit-form" class="output-edit-form">
+    <div class="field" style="max-width:720px;flex:0 0 auto">
       <label>Name</label>
       <input type="text" name="name" value="{{ output.name }}" required>
     </div>
-    <div class="field">
+
+    <div class="field output-content-field">
       <label>Content</label>
-      <textarea name="content" class="code-edit" spellcheck="false" style="min-height:420px">{{ output.generated_content }}</textarea>
+      <textarea name="content" id="output-content" spellcheck="false">{{ output.generated_content }}</textarea>
     </div>
-    <div class="actions">
+
+    <div class="actions" style="flex:0 0 auto">
       <button type="submit" class="btn btn-primary">Save</button>
       <a href="{{ url_for('outputs_view', output_id=output.id) }}" class="btn btn-ghost">Cancel</a>
     </div>
   </form>
 </div>
+
+<script src="{{ url_for('static', filename='vendor/codemirror/codemirror.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/addon/edit/matchbrackets.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/addon/search/searchcursor.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/addon/search/search.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/codemirror/addon/dialog/dialog.js') }}"></script>
+<script>
+  (function () {
+    var ta = document.getElementById('output-content');
+    if (!ta) return;
+    var cm = CodeMirror.fromTextArea(ta, {
+      mode: null,               // plaintext — rendered config, not a template
+      lineNumbers: true,
+      matchBrackets: true,
+      indentUnit: 2,
+      tabSize: 2,
+      lineWrapping: false,
+    });
+    // Let the flex chain lay out, then ask CodeMirror to measure its container.
+    requestAnimationFrame(function () { cm.refresh(); });
+    window.addEventListener('resize', function () { cm.refresh(); });
+    document.getElementById('output-edit-form').addEventListener('submit', function () { cm.save(); });
+  })();
+</script>
 {% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base_op.html" %}
+
+{% block title %}Install · Scripter{% endblock %}
+
+{% block content %}
+<div class="op-page">
+  <h1 class="op-title">Install Scripter</h1>
+  <p class="op-sub">One-time setup. Pick how access should work — you can change this later from the Auth page.</p>
+
+  {# ----- Open mode (new default) ----- #}
+  <form method="post"
+        onsubmit="return confirm('Install in open mode? Anyone who reaches the URL will have full access. Use only on trusted networks.');">
+    <div class="op-card">
+      <h2>Open mode  ·  recommended</h2>
+      <p class="op-help" style="margin-bottom:14px">
+        No login required. Everyone who reaches the URL can view, create, edit, and run every script.
+        Fastest first run; best for localhost development, a lab, or a trusted private network.
+      </p>
+      <div class="op-note-danger" style="margin-bottom:0">
+        <strong>No access control in open mode.</strong> Only use this behind a firewall, VPN, or on
+        <code style="font-family:var(--mono)">localhost</code>. Switch to authenticated mode anytime from the <b>Auth</b> settings page.
+      </div>
+      <div class="actions" style="margin-top:16px">
+        <button type="submit" name="mode" value="open" class="btn btn-primary">Install in open mode</button>
+      </div>
+    </div>
+  </form>
+
+  <div style="display:flex;align-items:center;gap:16px;margin:28px 0;
+              font-family:var(--mono);font-size:11px;letter-spacing:0.22em;
+              text-transform:uppercase;color:var(--ink-muted)">
+    <span style="flex:1;border-bottom:1px solid var(--rule)"></span>
+    <span>or</span>
+    <span style="flex:1;border-bottom:1px solid var(--rule)"></span>
+  </div>
+
+  {# ----- Auth mode ----- #}
+  <form method="post" autocomplete="off">
+    <div class="op-card">
+      <h2>Authenticated mode</h2>
+      <p class="op-help" style="margin-bottom:14px">
+        Create the first admin account. Additional users can be added from the <b>Users</b> panel after install.
+        TACACS+ can be configured via the <b>Auth</b> page.
+      </p>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Username</label>
+          <input type="text" name="username" value="{{ form.get('username', '') }}" autocomplete="username" minlength="3">
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input type="email" name="email" value="{{ form.get('email', '') }}" autocomplete="email">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Full name <span style="color:var(--ink-muted);letter-spacing:0;text-transform:none;font-family:var(--serif);font-style:italic">(optional)</span></label>
+        <input type="text" name="full_name" value="{{ form.get('full_name', '') }}">
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Password</label>
+          <input type="password" name="password" autocomplete="new-password" minlength="8">
+          <div class="op-help">8 characters minimum.</div>
+        </div>
+        <div class="field">
+          <label>Confirm password</label>
+          <input type="password" name="confirm" autocomplete="new-password" minlength="8">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="submit" name="mode" value="auth" class="btn">Install with auth</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

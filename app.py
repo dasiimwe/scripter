@@ -69,6 +69,7 @@ class User(UserMixin, db.Model):
 
 class Script(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    uuid = db.Column(db.String(36), index=True)  # stable cross-instance identity
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
     category = db.Column(db.String(50))
@@ -125,7 +126,7 @@ class FormSubmission(db.Model):
 class AuthConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     auth_type = db.Column(db.String(20), default='local')  # 'local' or 'tacacs'
-    auth_enabled = db.Column(db.Boolean, default=True)  # False = open mode, no login required
+    auth_enabled = db.Column(db.Boolean, default=False)  # default: open mode. User runs /install or Auth page to enable auth.
     tacacs_server = db.Column(db.String(255))
     tacacs_port = db.Column(db.Integer, default=49)
     tacacs_secret = db.Column(db.String(255))
@@ -209,9 +210,10 @@ def is_auth_enabled():
         pass  # outside request context (e.g., during `flask shell`)
     try:
         cfg = AuthConfig.query.first()
-        val = True if cfg is None else bool(cfg.auth_enabled)
+        # Default on fresh install is OPEN (no login). Existing cfg rows win.
+        val = False if cfg is None else bool(cfg.auth_enabled)
     except Exception:
-        val = True  # fail closed: if DB is unreachable, require auth
+        val = True  # fail closed on DB error: require auth rather than accidentally expose
     try:
         g.auth_enabled = val
     except RuntimeError:
@@ -666,7 +668,21 @@ def _ensure_column(table, column, ddl):
 def _startup_migrations():
     _ensure_column('auth_config', 'auth_enabled', 'auth_enabled BOOLEAN DEFAULT 1')
     _ensure_column('script',      'script_instructions', 'script_instructions TEXT')
+    _ensure_column('script',      'uuid', 'uuid VARCHAR(36)')
     _ensure_column('form_field',  'field_config', 'field_config TEXT')
+    _backfill_script_uuids()
+
+def _backfill_script_uuids():
+    try:
+        missing = Script.query.filter(Script.uuid.is_(None)).all()
+        if not missing:
+            return
+        for s in missing:
+            s.uuid = str(uuid.uuid4())
+        db.session.commit()
+        app.logger.info(f'Backfilled uuid for {len(missing)} existing scripts')
+    except Exception as e:
+        app.logger.warning(f'uuid backfill skipped: {e}')
 
 with app.app_context():
     try:
@@ -679,12 +695,13 @@ with app.app_context():
 @app.route('/')
 def index():
     try:
-        # Spot-check DB health; any query will do.
         Script.query.limit(1).all()
     except Exception as e:
         app.logger.error(f"Error accessing database: {str(e)}")
-        flash('Database not initialized. Please set up the application first.')
-        return redirect(url_for('setup'))
+        return redirect(url_for('install'))
+    # Fresh DB + auth on → direct the user through first-run setup.
+    if is_auth_enabled() and not _install_done():
+        return redirect(url_for('install'))
     return redirect(url_for('workbench'))
 
 # Authentication routes
@@ -692,6 +709,8 @@ def index():
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('index'))
+    if not _install_done():
+        return redirect(url_for('install'))
     
     form = LoginForm()
     if form.validate_on_submit():
@@ -1194,55 +1213,88 @@ def create_admin_command():
     db.session.commit()
     print(f'Admin user {username} created successfully.')
 
-# Modify the setup route to bypass authentication
-@app.route('/setup', methods=['GET', 'POST'])
-def setup():
-    app.logger.info("Setup route accessed")
-    
-    # Check if database already exists and has users
+def _install_done():
+    """True if this instance has been through initial setup: users exist."""
     try:
-        user_count = User.query.count()
-        app.logger.info(f"Found {user_count} users in database")
-        if user_count > 0:
-            flash('Database is already set up with users. Setup skipped.')
-            return redirect(url_for('index'))
+        return User.query.count() > 0
+    except Exception:
+        # DB not ready yet — treat as not installed.
+        return False
+
+@app.route('/install', methods=['GET', 'POST'])
+def install():
+    """First-run wizard. Creates an admin OR flips the app into open mode.
+
+    Accessible only when zero users exist. Once the first user is created
+    (or open mode is chosen), /install redirects to the app.
+    """
+    # Ensure schema exists — the startup hook does this too, but a fresh DB
+    # could still be missing tables if that failed.
+    try:
+        db.create_all()
     except Exception as e:
-        app.logger.info(f"Database not initialized yet: {str(e)}")
-        # If there's an error (like no tables exist), we'll proceed with setup
-        pass
-    
+        app.logger.warning(f'install: db.create_all failed: {e}')
+
+    if _install_done():
+        flash('This instance is already installed. Use /login or the Auth settings page to manage access.')
+        return redirect(url_for('index'))
+
+    form = {}
     if request.method == 'POST':
-        app.logger.info("Processing setup form submission")
-        try:
-            # Create all tables
-            db.create_all()
-            app.logger.info("Created all database tables")
-            
-            # Create admin user from form data
-            username = request.form.get('username', 'admin')
-            email = request.form.get('email', 'admin@example.com')
-            password = request.form.get('password', 'admin123')
-            
-            admin_user = User(
+        mode = request.form.get('mode', '')
+        form = dict(request.form)
+
+        if mode == 'open':
+            cfg = get_auth_config()
+            cfg.auth_enabled = False
+            cfg.updated_at = _utcnow()
+            db.session.commit()
+            flash('Installed in open mode. No login required.')
+            return redirect(url_for('index'))
+
+        if mode == 'auth':
+            username = (request.form.get('username') or '').strip()
+            email    = (request.form.get('email') or '').strip()
+            full_name= (request.form.get('full_name') or '').strip()
+            password = request.form.get('password') or ''
+            confirm  = request.form.get('confirm') or ''
+
+            errors = []
+            if len(username) < 3:                         errors.append('Username must be at least 3 characters.')
+            if '@' not in email or '.' not in email:      errors.append('A valid email is required.')
+            if len(password) < 8:                         errors.append('Password must be at least 8 characters.')
+            if password != confirm:                       errors.append('Password and confirmation do not match.')
+
+            if errors:
+                for e in errors:
+                    flash(e)
+                return render_template('install.html', form=form)
+
+            cfg = get_auth_config()
+            cfg.auth_enabled = True
+            cfg.updated_at = _utcnow()
+            user = User(
                 username=username,
                 email=email,
-                is_admin=True
+                full_name=full_name or None,
+                is_admin=True,
+                is_active=True,
+                auth_type='local',
             )
-            admin_user.set_password(password)
-            
-            db.session.add(admin_user)
+            user.set_password(password)
+            db.session.add(user)
             db.session.commit()
-            
-            app.logger.info(f"Created admin user: {username}")
-            flash(f'Database initialized successfully! Admin user "{username}" created.')
+            flash(f'Admin user "{username}" created. Please sign in.')
             return redirect(url_for('login'))
-        except Exception as e:
-            app.logger.error(f"Error during setup: {str(e)}")
-            flash(f'Error during setup: {str(e)}')
-            return render_template('setup.html')
-    
-    app.logger.info("Rendering setup template")
-    return render_template('setup.html')
+
+        flash('Please choose a mode.')
+
+    return render_template('install.html', form=form)
+
+# Legacy /setup URL forwards to the new wizard.
+@app.route('/setup', methods=['GET', 'POST'])
+def setup():
+    return redirect(url_for('install'), code=301)
 
 @app.route('/admin/migrate', methods=['GET', 'POST'])
 @login_required
@@ -1645,7 +1697,7 @@ class AuthConfigForm(FlaskForm):
     class Meta:
         csrf = False  # Disable CSRF for this form
     
-    auth_enabled = BooleanField('Require login', default=True)
+    auth_enabled = BooleanField('Require login', default=False)
     auth_type = SelectField('Default Authentication Method', choices=[
         ('local', 'Local Authentication'),
         ('tacacs', 'TACACS+ Authentication')
@@ -1984,6 +2036,7 @@ def workbench(script_id=None):
 def workbench_new():
     name = (request.form.get('name') or 'Untitled Script').strip()
     script = Script(
+        uuid=str(uuid.uuid4()),
         name=name,
         description='',
         category='',
@@ -2343,6 +2396,205 @@ def wb_reorder_fields(script_id):
             field.display_order = (idx + 1) * 10
     db.session.commit()
     return jsonify({'success': True})
+
+# ---------------------------------------------------------------------------
+# Script import / export (cross-instance)
+# ---------------------------------------------------------------------------
+_EXPORT_FORMAT = 'scripter.script.v1'
+
+def _export_script_dict(script):
+    """Serialize a script + its template + its form fields into a portable dict."""
+    return {
+        'format':       _EXPORT_FORMAT,
+        'exported_at':  _utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'source_uuid':  script.uuid,
+        'script': {
+            'name':                 script.name,
+            'description':          script.description or '',
+            'category':             script.category or '',
+            'tags':                 script.tags or '',
+            'script_instructions':  script.script_instructions or '',
+        },
+        'template': {
+            'content':        (script.template.content or '') if script.template else '',
+            'output_format':  (script.template.output_format or 'text') if script.template else 'text',
+        },
+        'form_fields': [
+            {
+                'name':               f.name,
+                'label':              f.label,
+                'field_type':         f.field_type,
+                'required':           bool(f.required),
+                'default_value':      f.default_value,
+                'help_text':          f.help_text,
+                'validation_rules':   f.validation_rules,
+                'conditional_logic':  f.conditional_logic,
+                'field_config':       f.field_config,
+                'display_order':      f.display_order,
+            }
+            for f in sorted(script.form_fields, key=lambda x: x.display_order)
+        ],
+    }
+
+def _import_script_from_dict(data, target=None, user=None):
+    """Apply an export dict. When target is None, creates a new Script.
+    Returns (script, created_bool). Replace-all strategy for template + fields."""
+    if not isinstance(data, dict) or data.get('format') != _EXPORT_FORMAT:
+        raise ValueError(f'Unsupported export format: {data.get("format") if isinstance(data, dict) else "not an object"}')
+
+    sd = data.get('script') or {}
+    td = data.get('template') or {}
+    ff = data.get('form_fields') or []
+
+    created = target is None
+    if created:
+        target = Script(
+            uuid=str(uuid.uuid4()),
+            status='draft',
+            name=(sd.get('name') or 'Imported Script').strip(),
+            creator_id=user.id if (user and getattr(user, 'is_authenticated', False)) else None,
+        )
+        db.session.add(target)
+        db.session.flush()  # get id before children reference it
+
+    target.name                = (sd.get('name') or target.name or 'Imported Script').strip()
+    target.description         = sd.get('description') or None
+    target.category            = sd.get('category') or None
+    target.tags                = sd.get('tags') or None
+    target.script_instructions = sd.get('script_instructions') or None
+
+    # Template — upsert on the singleton relationship.
+    if target.template is None:
+        target.template = Template(
+            content=td.get('content') or '',
+            output_format=td.get('output_format') or 'text',
+            version=1,
+        )
+    else:
+        target.template.content       = td.get('content') or ''
+        target.template.output_format = td.get('output_format') or 'text'
+        target.template.version       = (target.template.version or 0) + 1
+
+    # Form fields — wipe & replace. Submissions reference script_id, not field_id, so they survive.
+    for f in list(target.form_fields):
+        db.session.delete(f)
+    db.session.flush()
+
+    for fd in ff:
+        name = (fd.get('name') or '').strip()
+        if not name:
+            continue
+        db.session.add(FormField(
+            script_id=target.id,
+            name=name,
+            label=(fd.get('label') or name),
+            field_type=fd.get('field_type') or 'text',
+            required=bool(fd.get('required')),
+            default_value=fd.get('default_value'),
+            help_text=fd.get('help_text'),
+            validation_rules=fd.get('validation_rules'),
+            conditional_logic=fd.get('conditional_logic'),
+            field_config=fd.get('field_config'),
+            display_order=int(fd.get('display_order') or 0),
+        ))
+
+    return target, created
+
+
+@app.route('/workbench/<int:script_id>/export')
+@maybe_login_required
+def wb_export_script(script_id):
+    script = Script.query.get_or_404(script_id)
+    if not can_edit(current_user, script):
+        flash('You do not have permission to export this script.')
+        return redirect(url_for('workbench', script_id=script_id))
+    payload = json.dumps(_export_script_dict(script), indent=2, ensure_ascii=False)
+    safe = _safe_filename(script.name, f'script_{script_id}')
+    return _text_download(payload, f'{safe}.scripter.json', mime='application/json')
+
+
+@app.route('/workbench/import', methods=['GET', 'POST'])
+@maybe_login_required
+def wb_import_script():
+    if request.method == 'GET':
+        return render_template('import_script.html', step='upload')
+
+    file = request.files.get('import_file')
+    if not file or not file.filename:
+        flash('No file uploaded.')
+        return redirect(url_for('wb_import_script'))
+    try:
+        raw = file.read().decode('utf-8')
+        data = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        flash(f'Could not parse file: {e}')
+        return redirect(url_for('wb_import_script'))
+    if not isinstance(data, dict) or data.get('format') != _EXPORT_FORMAT:
+        flash(f'Unsupported export format. Expected "{_EXPORT_FORMAT}", got {data.get("format")!r}.')
+        return redirect(url_for('wb_import_script'))
+
+    # Suggest a target by matching source_uuid on the current instance.
+    matched = None
+    src_uuid = data.get('source_uuid')
+    if src_uuid:
+        matched = Script.query.filter_by(uuid=src_uuid).first()
+        if matched and not can_edit(current_user, matched):
+            matched = None  # user can't overwrite — don't preselect
+
+    # Full list of overwrite candidates the user may target.
+    all_scripts = Script.query.order_by(Script.modified_at.desc()).all()
+    editable_targets = [s for s in all_scripts if can_edit(current_user, s)]
+
+    return render_template(
+        'import_script.html',
+        step='preview',
+        data=data,
+        payload_json=json.dumps(data),  # round-trip through hidden field
+        matched=matched,
+        editable_targets=editable_targets,
+    )
+
+
+@app.route('/workbench/import/commit', methods=['POST'])
+@maybe_login_required
+def wb_import_commit():
+    payload = request.form.get('payload_json') or ''
+    try:
+        data = json.loads(payload)
+    except Exception:
+        flash('Import payload was missing or malformed — start over.')
+        return redirect(url_for('wb_import_script'))
+
+    mode = request.form.get('mode', '')
+    target = None
+    if mode == 'overwrite':
+        target_id = request.form.get('target_id', type=int)
+        if not target_id:
+            flash('Pick a script to overwrite.')
+            return redirect(url_for('wb_import_script'))
+        target = Script.query.get(target_id)
+        if target is None or not can_edit(current_user, target):
+            flash('Target script not found or not editable.')
+            return redirect(url_for('wb_import_script'))
+    elif mode != 'new':
+        flash('Choose a target mode.')
+        return redirect(url_for('wb_import_script'))
+
+    try:
+        script, created = _import_script_from_dict(data, target=target, user=current_user)
+    except ValueError as e:
+        flash(str(e))
+        return redirect(url_for('wb_import_script'))
+
+    _log_change(
+        script.id, 'script_edit', field_name='import',
+        new=data.get('source_uuid') or 'unknown',
+        description=('Imported as new script.' if created else 'Overwritten from imported file.'),
+    )
+    db.session.commit()
+    flash(f'Imported "{script.name}".')
+    return redirect(url_for('workbench', script_id=script.id))
+
 
 @app.route('/workbench/<int:script_id>/export-template')
 @maybe_login_required

@@ -1,0 +1,115 @@
+{% extends "base_op.html" %}
+
+{% block title %}Import script · Scripter{% endblock %}
+
+{% block content %}
+<div class="op-page">
+  <h1 class="op-title">Import script</h1>
+  <p class="op-sub">Load a <span class="mono">.scripter.json</span> file and create a new script or overwrite an existing one.</p>
+
+  {% if step == 'upload' %}
+    <form method="post" enctype="multipart/form-data">
+      <div class="op-card">
+        <h2>Upload</h2>
+        <div class="csv-drop">
+          <div>Drop a <span class="mono">.scripter.json</span> file here, or choose one:</div>
+          <input type="file" name="import_file" accept=".json,application/json" required>
+        </div>
+        <div class="actions">
+          <button type="submit" class="btn btn-primary">Next →</button>
+          <a href="{{ url_for('workbench') }}" class="btn btn-ghost">Cancel</a>
+        </div>
+      </div>
+    </form>
+
+  {% elif step == 'preview' %}
+    {% set sd = data.script %}
+    {% set td = data.template %}
+    {% set ff = data.form_fields or [] %}
+
+    <div class="op-card">
+      <h2>Preview</h2>
+      <dl class="kv">
+        <dt>Name</dt>         <dd><b>{{ sd.name }}</b></dd>
+        {% if sd.description %}<dt>Description</dt> <dd>{{ sd.description }}</dd>{% endif %}
+        <dt>Category</dt>     <dd>{{ sd.category or '—' }}</dd>
+        <dt>Tags</dt>         <dd>{{ sd.tags or '—' }}</dd>
+        <dt>Template</dt>     <dd><span class="mono">{{ (td.content or '')|length }} chars · format {{ td.output_format }}</span></dd>
+        <dt>Fields</dt>       <dd><span class="mono">{{ ff|length }}</span></dd>
+        <dt>Instructions</dt> <dd>{% if sd.script_instructions %}<span class="mono">{{ sd.script_instructions|length }} chars of rich-text</span>{% else %}—{% endif %}</dd>
+        <dt>Exported at</dt>  <dd><span class="mono">{{ data.exported_at or '—' }}</span></dd>
+        <dt>Source UUID</dt>  <dd><span class="mono">{{ data.source_uuid or '—' }}</span></dd>
+        {% if matched %}
+        <dt>UUID match</dt>   <dd>Found on this instance: <b>{{ matched.name }}</b> (№{{ '%04d' % matched.id }})</dd>
+        {% endif %}
+      </dl>
+
+      {% if ff %}
+      <div class="section-rule">Fields</div>
+      <table class="grid">
+        <thead><tr>
+          <th>Variable</th><th>Label</th><th style="width:18%">Type</th><th style="width:12%">Required</th>
+        </tr></thead>
+        <tbody>
+          {% for f in ff %}
+          <tr>
+            <td class="name">{{ f.name }}</td>
+            <td>{{ f.label }}</td>
+            <td class="type">{{ f.field_type }}</td>
+            <td>{% if f.required %}yes{% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+    <form method="post" action="{{ url_for('wb_import_commit') }}">
+      <input type="hidden" name="payload_json" value="{{ payload_json }}">
+
+      <div class="op-card">
+        <h2>Target</h2>
+
+        <div class="field">
+          <label class="op-toggle" style="font-family:var(--serif);font-size:14.5px;color:var(--ink);text-transform:none;letter-spacing:0">
+            <input type="radio" name="mode" value="new" {% if not matched %}checked{% endif %}>
+            Create a new script
+          </label>
+          <div class="op-help">A new script is added with a fresh UUID. Nothing existing is touched.</div>
+        </div>
+
+        {% if editable_targets %}
+        <div class="field" style="margin-top:14px">
+          <label class="op-toggle" style="font-family:var(--serif);font-size:14.5px;color:var(--ink);text-transform:none;letter-spacing:0">
+            <input type="radio" name="mode" value="overwrite" {% if matched %}checked{% endif %}>
+            Overwrite an existing script
+          </label>
+          <select name="target_id" style="margin-top:8px">
+            <option value="">— pick a script —</option>
+            {% for s in editable_targets %}
+              <option value="{{ s.id }}"
+                      {% if matched and matched.id == s.id %}selected{% endif %}>
+                {{ s.name }} (№{{ '%04d' % s.id }}){% if s.uuid == data.source_uuid %} · UUID match{% endif %}
+              </option>
+            {% endfor %}
+          </select>
+          <div class="op-help">
+            Replaces the target's template and form fields with the imported versions.
+            Existing submissions and outputs are preserved (they reference the script id).
+            The audit log records the import.
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn btn-primary"
+                onclick="return confirm('Proceed with import? Overwriting cannot be undone.');">
+          Import
+        </button>
+        <a href="{{ url_for('wb_import_script') }}" class="btn btn-ghost">Start over</a>
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}
