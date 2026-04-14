@@ -758,7 +758,9 @@ table.grid .inline-delete button:hover { color: var(--accent); }
 }
 .detect-list .chip button:hover { color: var(--ink); }
 
-/* CodeMirror overrides — match Operator's Manual palette */
+/* CodeMirror overrides — match Operator's Manual palette.
+   Height is controlled by the .tmpl-pane flex chain below when the editor
+   is inside the Template tab; the 380px fallback applies anywhere else. */
 .CodeMirror {
   height: 380px;
   font-family: var(--mono);
@@ -767,6 +769,38 @@ table.grid .inline-delete button:hover { color: var(--accent); }
   background: var(--canvas-soft);
   color: var(--ink);
   border: 1px solid var(--rule-strong);
+}
+
+/* Template tab fills the pane vertically so the editor breathes. */
+.pane-body.tmpl-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;          /* editor handles its own scroll */
+  padding-bottom: 20px;
+  max-width: none;
+}
+.pane-body.tmpl-pane > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  max-width: 960px;
+  width: 100%;
+}
+.pane-body.tmpl-pane .tmpl-editor-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 240px;         /* readable floor on short viewports */
+  margin-bottom: 14px;
+}
+.pane-body.tmpl-pane .tmpl-editor-field .CodeMirror {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.pane-body.tmpl-pane .tmpl-editor-field .hint {
+  flex: 0 0 auto;
 }
 .CodeMirror-gutters { background: var(--canvas-sunk); border-right: 1px solid var(--rule); }
 .CodeMirror-linenumber { color: var(--ink-muted); font-size: 11px; }

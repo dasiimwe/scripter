@@ -169,7 +169,7 @@
         </nav>
       </header>
 
-      <div class="pane-body">
+      <div class="pane-body{% if tab == 'template' and editable %} tmpl-pane{% endif %}">
 
       {# ---------------- DETAILS ---------------- #}
       {% if tab == 'details' %}
@@ -593,7 +593,7 @@
             <div class="tmpl-result" id="tmpl-result"></div>
             <div class="detect-list" id="detect-list"></div>
 
-            <div class="field">
+            <div class="field tmpl-editor-field">
               <label>Jinja2 template</label>
               <textarea name="content" id="tmpl-content" spellcheck="false">{{ selected.template.content if selected.template else '' }}</textarea>
               <div class="hint">Use <code>{% raw %}{{ variable }}{% endraw %}</code>, <code>{% raw %}{% for x in list %}{% endraw %}</code>, <code>{% raw %}{% if cond %}{% endraw %}</code>. Line numbers, bracket matching, and find (Ctrl/Cmd-F) available.</div>
@@ -636,6 +636,10 @@
                 tabSize: 2,
                 lineWrapping: false,
               });
+              // Let the flex chain settle, then re-measure so CodeMirror
+              // picks up its actual (full-height) container size.
+              requestAnimationFrame(function () { cm.refresh(); });
+              window.addEventListener('resize', function () { cm.refresh(); });
               document.getElementById('tmpl-form').addEventListener('submit', function () { cm.save(); });
 
               var result = document.getElementById('tmpl-result');

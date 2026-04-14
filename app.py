@@ -1,8 +1,13 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, make_response
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, make_response, g
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timezone
+
+def _utcnow():
+    """Naive UTC datetime — preserves the pre-existing naive-UTC semantics
+    of stored timestamps while avoiding the deprecated `_utcnow()`."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 import jinja2
 import os
 import uuid
@@ -53,7 +58,7 @@ class User(UserMixin, db.Model):
     is_active = db.Column(db.Boolean, default=True)
     auth_type = db.Column(db.String(20), default='local')  # 'local' or 'tacacs'
     full_name = db.Column(db.String(100))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
     last_login = db.Column(db.DateTime)
     
     def set_password(self, password):
@@ -69,8 +74,8 @@ class Script(db.Model):
     category = db.Column(db.String(50))
     tags = db.Column(db.String(200))
     script_instructions = db.Column(db.Text)  # rich HTML (Trix) — shown to end users on Run
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    modified_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
     creator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     status = db.Column(db.String(20), default='draft')  # draft, active, archived
 
@@ -88,8 +93,8 @@ class Template(db.Model):
     content = db.Column(db.Text, nullable=False)
     version = db.Column(db.Integer, default=1)
     output_format = db.Column(db.String(20), default='Plain Text')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    modified_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
 
 class FormField(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -104,13 +109,13 @@ class FormField(db.Model):
     conditional_logic = db.Column(db.Text)
     field_config = db.Column(db.Text)  # JSON: {options, min, max, step, pattern, placeholder, rows}
     display_order = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
 
 class FormSubmission(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    submission_date = db.Column(db.DateTime, default=datetime.utcnow)
+    submission_date = db.Column(db.DateTime, default=_utcnow)
     field_values = db.Column(db.Text)  # JSON string of field values
     output = db.Column(db.Text)  # Generated output or reference to it
     
@@ -126,8 +131,8 @@ class AuthConfig(db.Model):
     tacacs_secret = db.Column(db.String(255))
     tacacs_timeout = db.Column(db.Integer, default=10)
     tacacs_service = db.Column(db.String(50), default='scripter')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
 
 class ScriptChange(db.Model):
     """Append-only audit log of edits to a script and its children."""
@@ -135,7 +140,7 @@ class ScriptChange(db.Model):
     script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     change_type = db.Column(db.String(50), nullable=False)  # script_edit, template_edit, field_add, field_edit, field_delete
-    change_date = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    change_date = db.Column(db.DateTime, default=_utcnow, index=True)
     field_name = db.Column(db.String(100))
     old_value = db.Column(db.Text)
     new_value = db.Column(db.Text)
@@ -153,8 +158,8 @@ class GeneratedScript(db.Model):
     csv_row_data = db.Column(db.Text)   # JSON blob of the input values
     batch_id = db.Column(db.String(50), index=True)  # groups bulk runs
     status = db.Column(db.String(20), default='active')
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
-    modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow, index=True)
+    modified_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
 
     user = db.relationship('User', backref='generated_scripts')
 
@@ -163,8 +168,8 @@ class FormDraft(db.Model):
     script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     field_values = db.Column(db.JSON)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=_utcnow)
+    updated_at = db.Column(db.DateTime, default=_utcnow, onupdate=_utcnow)
     
     # Relationships
     script = db.relationship('Script', backref='drafts')
@@ -194,11 +199,24 @@ def is_auth_enabled():
     override = _env_override()
     if override is not None:
         return override
+    # Cache per-request: this is called from before_request, the context
+    # processor, maybe_login_required, and several views. Without caching,
+    # every workbench GET runs `SELECT * FROM auth_config LIMIT 1` 4-5 times.
+    try:
+        if 'auth_enabled' in g:
+            return g.auth_enabled
+    except RuntimeError:
+        pass  # outside request context (e.g., during `flask shell`)
     try:
         cfg = AuthConfig.query.first()
-        return True if cfg is None else bool(cfg.auth_enabled)
+        val = True if cfg is None else bool(cfg.auth_enabled)
     except Exception:
-        return True  # fail closed: if DB is unreachable, require auth
+        val = True  # fail closed: if DB is unreachable, require auth
+    try:
+        g.auth_enabled = val
+    except RuntimeError:
+        pass
+    return val
 
 def ensure_local_user():
     """Seed the shared 'local' user used when auth is disabled. Idempotent."""
@@ -237,6 +255,13 @@ def maybe_login_required(view):
             return login_required(view)(*args, **kwargs)
         return view(*args, **kwargs)
     return wrapper
+
+def _viewer_sees_all():
+    """True when the current request should see every row regardless of ownership:
+    auth disabled (open mode) or authenticated admin."""
+    if not is_auth_enabled():
+        return True
+    return bool(current_user.is_authenticated and current_user.is_admin)
 
 def can_admin(user):
     """Who can see Settings (Users, Auth Config)? Never in no-auth mode — those pages
@@ -341,6 +366,16 @@ def _from_json_filter(value):
     except (ValueError, TypeError):
         return {}
 
+def _safe_filename(name, fallback):
+    """Make a filesystem-friendly filename component from user-supplied text."""
+    return re.sub(r'[^A-Za-z0-9._-]+', '_', name or '') or fallback
+
+def _text_download(body, filename, mime='text/plain'):
+    resp = make_response(body)
+    resp.headers['Content-Type'] = f'{mime}; charset=utf-8'
+    resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return resp
+
 # ---------------------------------------------------------------------------
 # Form field type registry
 # ---------------------------------------------------------------------------
@@ -388,11 +423,10 @@ FIELD_TYPES = [
     ('hostname',       'Hostname',             'Network', {'network'},  False),
 ]
 
-FIELD_TYPES_BY_KEY = {t[0]: t for t in FIELD_TYPES}
+_MULTI_VALUE_TYPES = {'multiselect', 'checkbox_group'}
 
 def _field_is_multi(field_type):
-    t = FIELD_TYPES_BY_KEY.get(field_type)
-    return bool(t and t[4])
+    return field_type in _MULTI_VALUE_TYPES
 
 def _build_field_config(form):
     """Collect type-specific config keys from a form submission into a dict.
@@ -440,7 +474,6 @@ def inject_field_types():
     return dict(
         FIELD_TYPES=FIELD_TYPES,
         FIELD_TYPE_GROUPS=groups,
-        FIELD_TYPES_BY_KEY=FIELD_TYPES_BY_KEY,
         NETWORK_PATTERNS=NETWORK_PATTERNS,
     )
 
@@ -496,14 +529,14 @@ def login():
             # TACACS+ authentication
             if authenticate_tacacs(form.username.data, form.password.data):
                 login_user(user, remember=form.remember_me.data)
-                user.last_login = datetime.utcnow()
+                user.last_login = _utcnow()
                 db.session.commit()
                 return redirect(url_for('index'))
         elif user and user.auth_type == 'local':
             # Local authentication
             if user.check_password(form.password.data):
                 login_user(user, remember=form.remember_me.data)
-                user.last_login = datetime.utcnow()
+                user.last_login = _utcnow()
                 db.session.commit()
                 return redirect(url_for('index'))
         elif not user and auth_config.auth_type == 'tacacs':
@@ -610,32 +643,6 @@ def edit_script(script_id):
 @maybe_login_required
 def edit_template(script_id):
     return redirect(url_for('workbench', script_id=script_id, tab='template'), code=301)
-
-def _unused_edit_template_old():
-    jinja_snippets = [
-        {
-            'name': 'If Condition',
-            'code': '{% if condition %}\n    content\n{% endif %}'
-        },
-        {
-            'name': 'If-Else Condition',
-            'code': '{% if condition %}\n    content if true\n{% else %}\n    content if false\n{% endif %}'
-        },
-        {
-            'name': 'If-Elif-Else Condition',
-            'code': '{% if condition1 %}\n    content if condition1 is true\n{% elif condition2 %}\n    content if condition2 is true\n{% else %}\n    content if all conditions are false\n{% endif %}'
-        },
-        {
-            'name': 'Variable',
-            'code': '{{ variable_name }}'
-        },
-        {
-            'name': 'For Loop',
-            'code': '{% for item in items %}\n    {{ item }}\n{% endfor %}'
-        }
-    ]
-    
-    return render_template('admin/edit_template.html', script=script, template=template, jinja_snippets=jinja_snippets)
 
 @app.route('/scripts/<int:script_id>/fields', methods=['GET'])
 @maybe_login_required
@@ -1390,7 +1397,7 @@ def auth_config():
             
         config.tacacs_timeout = int(form.tacacs_timeout.data)
         config.tacacs_service = form.tacacs_service.data
-        config.updated_at = datetime.utcnow()
+        config.updated_at = _utcnow()
         
         db.session.commit()
         flash('Authentication configuration has been updated.')
@@ -1429,30 +1436,8 @@ def test_tacacs():
 @app.route('/admin/dashboard')
 @maybe_login_required
 def admin_dashboard():
-    # Legacy entry point — forwards to the unified workbench.
     return redirect(url_for('workbench'), code=301)
 
-def _unused_admin_dashboard_old():
-    # Kept only so the original template rendering code below doesn't need to be deleted
-    # piecemeal — it's unreachable. Safe to remove wholesale in a future cleanup pass.
-    user_count = User.query.count()
-    active_users = User.query.filter_by(is_active=True).count()
-    admin_users = User.query.filter_by(is_admin=True).count()
-    tacacs_users = User.query.filter_by(auth_type='tacacs').count()
-
-    # Get existing stats
-    script_count = Script.query.count()
-    submission_count = FormSubmission.query.count()
-    
-    return render_template('admin/dashboard.html', 
-                          script_count=script_count,
-                          submission_count=submission_count,
-                          user_count=user_count,
-                          active_users=active_users,
-                          admin_users=admin_users,
-                          tacacs_users=tacacs_users)
-
-# Add these forms
 class LoginForm(FlaskForm):
     class Meta:
         csrf = False  # Disable CSRF for this form
@@ -1767,7 +1752,7 @@ RAIL_SORT_LABELS = [
 
 def _visible_scripts(q='', sort_key='modified_desc', page=1, per_page=15):
     query = Script.query
-    if is_auth_enabled() and not (current_user.is_authenticated and current_user.is_admin):
+    if not _viewer_sees_all():
         query = query.filter(
             (Script.creator_id == current_user.id) | (Script.status == 'active')
         )
@@ -1804,7 +1789,7 @@ def workbench(script_id=None):
     script_outputs = None
     if selected and tab == 'outputs':
         q = GeneratedScript.query.filter_by(original_script_id=selected.id)
-        if is_auth_enabled() and not (current_user.is_authenticated and current_user.is_admin):
+        if not _viewer_sees_all():
             uid = current_user.id if current_user.is_authenticated else None
             q = q.filter(GeneratedScript.user_id == uid)
         script_outputs = q.order_by(GeneratedScript.created_at.desc()).limit(50).all()
@@ -1976,7 +1961,7 @@ def workbench_run(script_id):
         return str(val)[:20] if val else ''
     name_bits = [s for s in (_first_str(form_data.get(f.name)) for f in form_fields[:2]) if s]
     gname = f"{script.name} — " + (' '.join(name_bits) if name_bits
-                                    else datetime.utcnow().strftime('%Y-%m-%d %H:%M'))
+                                    else _utcnow().strftime('%Y-%m-%d %H:%M'))
     generated = GeneratedScript(
         original_script_id=script_id,
         user_id=uid,
@@ -2207,11 +2192,8 @@ def wb_export_template(script_id):
             lines.append(f'# {f.name} — {{{{ {f.name} }}}}')
         lines.append('')
     body = '\n'.join(lines) + (script.template.content or '')
-    resp = make_response(body)
-    resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
-    safe = re.sub(r'[^A-Za-z0-9._-]+', '_', script.name) or f'script_{script_id}'
-    resp.headers['Content-Disposition'] = f'attachment; filename="{safe}_template.txt"'
-    return resp
+    safe = _safe_filename(script.name, f'script_{script_id}')
+    return _text_download(body, f'{safe}_template.txt')
 
 @app.route('/workbench/<int:script_id>/csv-template')
 @maybe_login_required
@@ -2225,11 +2207,8 @@ def wb_csv_template(script_id):
     w = _csv.writer(buf)
     w.writerow([f.name for f in fields])
     w.writerow([f'{f.label} ({f.field_type})' for f in fields])
-    safe = re.sub(r'[^A-Za-z0-9._-]+', '_', script.name) or f'script_{script_id}'
-    resp = make_response(buf.getvalue())
-    resp.headers['Content-Type'] = 'text/csv; charset=utf-8'
-    resp.headers['Content-Disposition'] = f'attachment; filename="{safe}_template.csv"'
-    return resp
+    safe = _safe_filename(script.name, f'script_{script_id}')
+    return _text_download(buf.getvalue(), f'{safe}_template.csv', mime='text/csv')
 
 # ---------------------------------------------------------------------------
 # History tab
@@ -2364,7 +2343,7 @@ def outputs_list():
     script_id  = request.args.get('script_id', type=int)
 
     q = GeneratedScript.query
-    if is_auth_enabled() and not (current_user.is_authenticated and current_user.is_admin):
+    if not _viewer_sees_all():
         q = q.filter(GeneratedScript.user_id == current_user.id)
     if search:
         pat = f'%{search}%'
@@ -2397,7 +2376,7 @@ def outputs_list():
 
 def _owned_output_or_404(output_id):
     out = GeneratedScript.query.get_or_404(output_id)
-    if is_auth_enabled() and not (current_user.is_authenticated and current_user.is_admin):
+    if not _viewer_sees_all():
         uid = current_user.id if current_user.is_authenticated else None
         if out.user_id != uid:
             flash('Not found.')
@@ -2421,7 +2400,7 @@ def outputs_edit(output_id):
     if request.method == 'POST':
         out.name = (request.form.get('name') or out.name).strip()
         out.generated_content = request.form.get('content', out.generated_content)
-        out.modified_at = datetime.utcnow()
+        out.modified_at = _utcnow()
         db.session.commit()
         flash('Output saved.')
         return redirect(url_for('outputs_view', output_id=out.id))
@@ -2433,11 +2412,8 @@ def outputs_download(output_id):
     out = _owned_output_or_404(output_id)
     if out is None:
         return redirect(url_for('outputs_list'))
-    safe = re.sub(r'[^A-Za-z0-9._-]+', '_', out.name) or f'output_{output_id}'
-    resp = make_response(out.generated_content)
-    resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
-    resp.headers['Content-Disposition'] = f'attachment; filename="{safe}.txt"'
-    return resp
+    safe = _safe_filename(out.name, f'output_{output_id}')
+    return _text_download(out.generated_content, f'{safe}.txt')
 
 @app.route('/outputs/<int:output_id>/delete', methods=['POST'])
 @maybe_login_required
