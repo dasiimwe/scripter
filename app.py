@@ -322,7 +322,7 @@ def edit_template(script_id):
         }
     ]
     
-    return render_template('edit_template.html', script=script, template=template, jinja_snippets=jinja_snippets)
+    return render_template('admin/edit_template.html', script=script, template=template, jinja_snippets=jinja_snippets)
 
 @app.route('/scripts/<int:script_id>/fields', methods=['GET'])
 @login_required
@@ -334,7 +334,7 @@ def manage_fields(script_id):
         flash('Access denied: You can only edit your own scripts')
         return redirect(url_for('index'))
     
-    return render_template('manage_fields.html', script=script)
+    return render_template('admin/manage_fields.html', script=script)
 
 @app.route('/scripts/<int:script_id>/fields/add', methods=['GET', 'POST'])
 @login_required
