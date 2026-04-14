@@ -348,16 +348,163 @@ def generate_diff(old_text, new_text):
             out.append({'type': 'context', 'content': line})
     return out
 
+# ---------------------------------------------------------------------------
+# Template-time IP value wrapper
+# ---------------------------------------------------------------------------
+# Form fields typed ipv4_address / ipv6_address / cidr get their string value
+# wrapped in this object before it reaches jinja_template.render(). Users can
+# then write {{ site_ip.first }}, {{ site_ip.netmask }}, etc. Bare {{ site_ip }}
+# still renders the raw input verbatim.
+import ipaddress as _ipaddress
+
+_IP_TYPES = frozenset({'ipv4_address', 'ipv6_address', 'cidr'})
+
+class IPValue:
+    """Smart proxy around a user-entered IP string.
+
+    Accepts bare addresses, CIDRs, and host-within-subnet specs. Parse failures
+    are tolerated: `str(IPValue(bad))` returns the original input; derived
+    attributes return ''. The Jinja render never crashes on a bad IP value.
+    """
+
+    def __init__(self, raw):
+        self._raw = '' if raw is None else str(raw)
+        self._iface = None
+        self._net = None
+        self._host = None
+        if self._raw:
+            try:
+                spec = self._raw if '/' in self._raw else f'{self._raw}/{32 if _ipaddress.ip_address(self._raw).version == 4 else 128}'
+                self._iface = _ipaddress.ip_interface(spec)
+                self._net = self._iface.network
+                self._host = self._iface.ip
+            except ValueError:
+                pass
+
+    def __str__(self):     return self._raw
+    def __repr__(self):    return self._raw
+    def __bool__(self):    return bool(self._raw)
+    def __html__(self):    return self._raw  # Jinja safe-markup hook
+
+    def _safe(self, fn, v4_only=False):
+        if self._net is None:
+            return ''
+        if v4_only and self._net.version != 4:
+            return ''
+        try:
+            return fn()
+        except Exception:
+            return ''
+
+    # --- address / subnet identity ---
+    @property
+    def address(self):   return self._safe(lambda: str(self._host))
+    @property
+    def network(self):   return self._safe(lambda: str(self._net.network_address))
+    @property
+    def netmask(self):   return self._safe(lambda: str(self._net.netmask))
+    @property
+    def wildcard(self):  return self._safe(lambda: str(self._net.hostmask), v4_only=True)
+    @property
+    def hostmask(self):  return self.wildcard
+    @property
+    def broadcast(self): return self._safe(lambda: str(self._net.broadcast_address), v4_only=True)
+    @property
+    def cidr(self):      return self._safe(lambda: str(self._net))
+    @property
+    def prefix(self):    return self._safe(lambda: self._net.prefixlen)
+
+    # --- usable host range ---
+    @property
+    def first(self):
+        def _f():
+            n = self._net
+            full = 32 if n.version == 4 else 128
+            if n.prefixlen == full:
+                return str(n.network_address)
+            if n.version == 4 and n.prefixlen == 31:
+                return str(list(n.hosts())[0])
+            return str(n.network_address + 1)
+        return self._safe(_f)
+
+    @property
+    def last(self):
+        def _l():
+            n = self._net
+            full = 32 if n.version == 4 else 128
+            if n.prefixlen == full:
+                return str(n.network_address)
+            if n.version == 4:
+                if n.prefixlen == 31:
+                    return str(list(n.hosts())[-1])
+                return str(n.broadcast_address - 1)
+            return str(n.broadcast_address)
+        return self._safe(_l)
+
+    @property
+    def hosts(self):
+        def _c():
+            n = self._net
+            full = 32 if n.version == 4 else 128
+            if n.prefixlen == full:
+                return 1
+            if n.version == 4:
+                if n.prefixlen == 31:
+                    return 2
+                return n.num_addresses - 2
+            return n.num_addresses - 1
+        return self._safe(_c)
+
+    @property
+    def size(self):      return self._safe(lambda: self._net.num_addresses)
+    @property
+    def version(self):   return self._safe(lambda: self._net.version)
+
+    # --- classification ---
+    @property
+    def is_private(self):    return self._safe(lambda: self._net.is_private)
+    @property
+    def is_global(self):     return self._safe(lambda: self._net.is_global)
+    @property
+    def is_loopback(self):   return self._safe(lambda: self._net.is_loopback)
+    @property
+    def is_multicast(self):  return self._safe(lambda: self._net.is_multicast)
+    @property
+    def is_link_local(self): return self._safe(lambda: self._net.is_link_local)
+
+    # --- DNS / canonical forms ---
+    @property
+    def reverse_pointer(self): return self._safe(lambda: self._host.reverse_pointer)
+    @property
+    def exploded(self):        return self._safe(lambda: self._host.exploded)
+    @property
+    def compressed(self):      return self._safe(lambda: self._host.compressed)
+
+
 _VAR_RE       = re.compile(r'\{\{\s*(\w+)\s*\}\}')
 _VAR_ATTR_RE  = re.compile(r'\{\{\s*(\w+)\.\w+\s*\}\}')
 
 def _detect_template_variables(content):
-    """Return the set of top-level variable names referenced by {{ }} in content."""
+    """Return the set of undeclared variable names the template references.
+
+    Uses Jinja's AST walker (meta.find_undeclared_variables) so references
+    inside `{% if %}`, `{% for x in y %}`, `{% set z = w %}` and all other
+    tag forms are caught — not just `{{ }}` output expressions. Loop-local
+    and set-local variables are correctly excluded.
+
+    Falls back to regex if the template has a syntax error (so the user can
+    still see the partial picture while they fix it).
+    """
     if not content:
         return set()
-    found = set(_VAR_RE.findall(content))
-    found.update(_VAR_ATTR_RE.findall(content))
-    return found
+    try:
+        from jinja2 import Environment, meta
+        parsed = Environment().parse(content)
+        return set(meta.find_undeclared_variables(parsed))
+    except Exception:
+        found = set(_VAR_RE.findall(content))
+        found.update(_VAR_ATTR_RE.findall(content))
+        return found
 
 @app.template_filter('from_json')
 def _from_json_filter(value):
@@ -770,7 +917,7 @@ def view_script(script_id):
         submission = FormSubmission(
             script_id=script_id,
             user_id=current_user.id,
-            field_values=json.dumps(form_data),
+            field_values=json.dumps(form_data, default=str),
             output=output
         )
         db.session.add(submission)
@@ -1876,28 +2023,22 @@ def workbench_save_template(script_id):
 
     new_content = request.form.get('content', '')
     new_format  = request.form.get('output_format', script.template.output_format)
-    skip_var_check = bool(request.form.get('skip_var_check'))
 
-    # Syntax + undefined-variable validation
+    # Validation is advisory, not blocking. The user's content is always saved
+    # so they never lose work; issues are surfaced as flash warnings.
     from jinja2 import Environment, TemplateSyntaxError, meta
-    env = Environment()
+    warnings = []
     try:
-        parsed = env.parse(new_content)
-    except TemplateSyntaxError as e:
-        flash(f'Template syntax error at line {e.lineno}: {e.message}')
-        return redirect(url_for('workbench', script_id=script.id, tab='template'))
-
-    if not skip_var_check:
+        parsed = Environment().parse(new_content)
         tmpl_vars = meta.find_undeclared_variables(parsed)
-        field_names = {f.name for f in script.form_fields}
-        missing = sorted(tmpl_vars - field_names)
+        missing = sorted(tmpl_vars - {f.name for f in script.form_fields})
         if missing:
-            flash(
-                'Template references undefined variables: '
-                + ', '.join(missing)
-                + '. Add matching fields on the Fields tab, or use "Detect variables".'
+            warnings.append(
+                'References undefined variables: ' + ', '.join(missing)
+                + ' — add matching fields on the Fields tab, or use "Detect variables".'
             )
-            return redirect(url_for('workbench', script_id=script.id, tab='template'))
+    except TemplateSyntaxError as e:
+        warnings.append(f'Template syntax error at line {e.lineno}: {e.message}')
 
     old_content = script.template.content
     old_format  = script.template.output_format
@@ -1916,6 +2057,11 @@ def workbench_save_template(script_id):
         changed = True
     if changed:
         db.session.commit()
+    if warnings:
+        # Tagged category so these render inline above the editor, not in the global flash bar.
+        for w in warnings:
+            flash(w, 'template_warning')
+    elif changed:
         flash('Template saved.')
     return redirect(url_for('workbench', script_id=script.id, tab='template'))
 
@@ -1930,6 +2076,8 @@ def workbench_run(script_id):
             form_data[f.name] = request.form.getlist(f.name)
         elif f.field_type == 'checkbox':
             form_data[f.name] = bool(request.form.get(f.name))
+        elif f.field_type in _IP_TYPES:
+            form_data[f.name] = IPValue(request.form.get(f.name, ''))
         else:
             form_data[f.name] = request.form.get(f.name, '')
     try:
@@ -1950,7 +2098,7 @@ def workbench_run(script_id):
     submission = FormSubmission(
         script_id=script_id,
         user_id=uid,
-        field_values=json.dumps(form_data),
+        field_values=json.dumps(form_data, default=str),
         output=full_output,
     )
     db.session.add(submission)
@@ -1967,7 +2115,7 @@ def workbench_run(script_id):
         user_id=uid,
         name=gname[:200],
         generated_content=full_output,
-        csv_row_data=json.dumps(form_data),
+        csv_row_data=json.dumps(form_data, default=str),
     )
     db.session.add(generated)
     db.session.commit()
@@ -2305,7 +2453,10 @@ def wb_bulk_generate(script_id):
     for row_num, row in enumerate(reader, start=2):
         if not any((row or {}).values()):
             continue
-        form_data = {f.name: (row.get(f.name) or '').strip() for f in fields}
+        form_data = {}
+        for f in fields:
+            raw = (row.get(f.name) or '').strip()
+            form_data[f.name] = IPValue(raw) if f.field_type in _IP_TYPES else raw
         try:
             rendered = env.from_string(script.template.content or '').render(**form_data)
         except Exception as e:
@@ -2319,7 +2470,7 @@ def wb_bulk_generate(script_id):
             user_id=uid,
             name=name[:200],
             generated_content=rendered,
-            csv_row_data=json.dumps(form_data),
+            csv_row_data=json.dumps(form_data, default=str),
             batch_id=batch_id,
         ))
         created += 1

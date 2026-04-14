@@ -105,7 +105,7 @@
   </nav>
 </header>
 
-{% with messages = get_flashed_messages() %}
+{% with messages = get_flashed_messages(category_filter=['message', 'info', 'warning', 'error']) %}
   {% for message in messages %}
     <div class="flash" style="margin: 16px auto; max-width: 720px;">— {{ message }}</div>
   {% endfor %}

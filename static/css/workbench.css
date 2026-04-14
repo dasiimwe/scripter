@@ -710,6 +710,23 @@ table.grid .inline-delete button:hover { color: var(--accent); }
 .pagination .here { background: var(--ink); color: var(--canvas); border-color: var(--ink); }
 .pagination .disabled { color: var(--rule-strong); }
 
+/* --- template tab server-side warnings (rendered above toolbar) -------- */
+.tmpl-warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.tmpl-warning {
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding: 10px 14px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--accent-ink);
+  line-height: 1.5;
+}
+
 /* --- template tab buttons + inline validation -------------------------- */
 .tmpl-actions {
   display: flex;
@@ -974,12 +991,12 @@ tr.field-edit-row.open > td {
   font-size: 13.5px;
 }
 
-tr.fld-row .actions {
+tr.fld-row .fld-actions {
   white-space: nowrap;
   text-align: right;
 }
-tr.fld-row .actions .edit-btn,
-tr.fld-row .actions .inline-delete button {
+tr.fld-row .fld-actions .edit-btn,
+tr.fld-row .fld-actions .inline-delete button {
   background: none;
   border: none;
   font-family: var(--mono);
@@ -991,9 +1008,9 @@ tr.fld-row .actions .inline-delete button {
   border-bottom: 1px solid transparent;
   color: var(--ink-mid);
 }
-tr.fld-row .actions .edit-btn:hover { color: var(--accent-ink); border-bottom-color: var(--accent); }
-tr.fld-row .actions .inline-delete button { color: var(--danger); }
-tr.fld-row .actions .inline-delete button:hover { border-bottom-color: var(--danger); }
+tr.fld-row .fld-actions .edit-btn:hover { color: var(--accent-ink); border-bottom-color: var(--accent); }
+tr.fld-row .fld-actions .inline-delete button { color: var(--danger); }
+tr.fld-row .fld-actions .inline-delete button:hover { border-bottom-color: var(--danger); }
 tr.fld-row.editing td { background: var(--canvas-sunk); }
 
 /* --- add-field toggle + collapsed panel -------------------------------- */
@@ -1152,12 +1169,12 @@ table.outputs .batch {
   font-size: 10.5px;
   border-left: 2px solid var(--accent);
 }
-table.outputs td.actions {
+table.outputs td.out-actions {
   white-space: nowrap;
   text-align: right;
 }
-table.outputs td.actions a,
-table.outputs td.actions button {
+table.outputs td.out-actions a,
+table.outputs td.out-actions button {
   display: inline-block;
   margin-left: 10px;
   background: none;
@@ -1171,9 +1188,9 @@ table.outputs td.actions button {
   cursor: pointer;
   border-bottom: 1px solid transparent;
 }
-table.outputs td.actions a:hover { color: var(--accent-ink); border-bottom-color: var(--accent); }
-table.outputs td.actions .del { color: var(--danger); }
-table.outputs td.actions .del:hover { color: var(--danger); border-bottom-color: var(--danger); }
+table.outputs td.out-actions a:hover { color: var(--accent-ink); border-bottom-color: var(--accent); }
+table.outputs td.out-actions .del { color: var(--danger); }
+table.outputs td.out-actions .del:hover { color: var(--danger); border-bottom-color: var(--danger); }
 
 .outputs-empty {
   padding: 60px 0;
@@ -1271,6 +1288,110 @@ trix-editor:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
   margin-bottom: 16px;
 }
 .csv-drop input[type=file] { margin-top: 10px; font-family: var(--mono); font-size: 12px; }
+
+/* --- Jinja snippet popover ---------------------------------------------- */
+.snip-wrap {
+  position: relative;
+  display: inline-block;
+}
+.snip-popover {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  width: 520px;
+  max-height: 480px;
+  background: var(--canvas-soft);
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid var(--accent);
+  box-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.25);
+  animation: ip-fade 140ms ease-out;
+  flex-direction: column;
+}
+.snip-popover.open { display: flex; }
+.snip-search {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--canvas-sunk);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.snip-search input {
+  flex: 1;
+  background: var(--canvas);
+  border: 1px solid var(--rule-strong);
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.snip-search input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.snip-search .snip-count {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.snip-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 4px 0 8px;
+}
+.snip-cat {
+  padding: 10px 14px 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 2px;
+  background: var(--canvas-soft);
+  position: sticky;
+  top: 0;
+}
+.snip-item {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  align-items: baseline;
+  gap: 14px;
+  width: 100%;
+  padding: 7px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--serif);
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.snip-item:hover,
+.snip-item.active {
+  background: var(--canvas-sunk);
+}
+.snip-item.active { box-shadow: inset 3px 0 0 var(--accent); }
+.snip-item .snip-name { font-weight: 500; }
+.snip-item .snip-preview {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: ltr;
+}
+.snip-empty {
+  padding: 26px 14px;
+  text-align: center;
+  color: var(--ink-muted);
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+}
 
 /* --- IP helper --------------------------------------------------------- */
 a.ip-link {

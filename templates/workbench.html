@@ -50,7 +50,7 @@
   </nav>
 </header>
 
-{% with messages = get_flashed_messages() %}
+{% with messages = get_flashed_messages(category_filter=['message', 'info', 'warning', 'error']) %}
   {% for message in messages %}
     <div class="flash">— {{ message }}</div>
   {% endfor %}
@@ -213,11 +213,11 @@
 
             <div class="actions">
               <button type="submit" class="btn">Save details</button>
-              <form method="post" action="{{ url_for('workbench_delete', script_id=selected.id) }}"
-                    onsubmit="return confirm('Delete this script and all its fields + submissions? This cannot be undone.');"
-                    style="display:inline">
-                <button type="submit" class="btn btn-danger">Delete script</button>
-              </form>
+              <button type="submit" class="btn btn-danger"
+                      formaction="{{ url_for('workbench_delete', script_id=selected.id) }}"
+                      onclick="return confirm('Delete this script and all its fields + submissions? This cannot be undone.');">
+                Delete script
+              </button>
             </div>
           </form>
           <script src="{{ url_for('static', filename='vendor/trix/trix.umd.min.js') }}"></script>
@@ -396,7 +396,7 @@
                 <td class="type">{{ f.field_type }}</td>
                 <td>{% if f.required %}yes{% else %}—{% endif %}</td>
                 {% if editable %}
-                <td class="actions">
+                <td class="fld-actions">
                   <button type="button" class="edit-btn" data-edit-open="{{ f.id }}">Edit</button>
                   <form method="post" class="inline-delete" style="display:inline"
                         action="{{ url_for('workbench_delete_field', script_id=selected.id, field_id=f.id) }}"
@@ -582,13 +582,29 @@
       {% elif tab == 'template' %}
         {% if editable %}
           <form method="post" id="tmpl-form" action="{{ url_for('workbench_save_template', script_id=selected.id) }}">
+            {% with tmpl_warnings = get_flashed_messages(category_filter=['template_warning']) %}
+              {% if tmpl_warnings %}
+                <div class="tmpl-warnings">
+                  {% for w in tmpl_warnings %}
+                    <div class="tmpl-warning">Saved with warning — {{ w }}</div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            {% endwith %}
             <div class="tmpl-actions">
               <button type="button" class="btn btn-ghost" id="btn-validate">Validate</button>
               <button type="button" class="btn btn-ghost" id="btn-detect">Detect variables</button>
+              <span class="snip-wrap">
+                <button type="button" class="btn btn-ghost" id="btn-snippet">Insert snippet ▾</button>
+                <div class="snip-popover" id="snip-popover" role="dialog" aria-label="Insert Jinja2 snippet">
+                  <div class="snip-search">
+                    <input type="text" id="snip-search-input" placeholder="Search snippets…" autocomplete="off" spellcheck="false">
+                    <span class="snip-count" id="snip-count"></span>
+                  </div>
+                  <div class="snip-list" id="snip-list"></div>
+                </div>
+              </span>
               <a href="{{ url_for('wb_export_template', script_id=selected.id) }}" class="btn btn-ghost">Export .txt</a>
-              <label style="margin-left:auto;display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-muted)">
-                <input type="checkbox" name="skip_var_check" value="1"> Skip undefined-var check
-              </label>
             </div>
             <div class="tmpl-result" id="tmpl-result"></div>
             <div class="detect-list" id="detect-list"></div>
@@ -596,7 +612,7 @@
             <div class="field tmpl-editor-field">
               <label>Jinja2 template</label>
               <textarea name="content" id="tmpl-content" spellcheck="false">{{ selected.template.content if selected.template else '' }}</textarea>
-              <div class="hint">Use <code>{% raw %}{{ variable }}{% endraw %}</code>, <code>{% raw %}{% for x in list %}{% endraw %}</code>, <code>{% raw %}{% if cond %}{% endraw %}</code>. Line numbers, bracket matching, and find (Ctrl/Cmd-F) available.</div>
+              <div class="hint">Use <code>{% raw %}{{ variable }}{% endraw %}</code>, <code>{% raw %}{% for x in list %}{% endraw %}</code>, <code>{% raw %}{% if cond %}{% endraw %}</code>. Line numbers, bracket matching, and find (Ctrl/Cmd-F) available. Fields typed <b>IP / CIDR</b> expose helpers — <code>{% raw %}{{ site_ip.first }}{% endraw %}</code>, <code>.network</code>, <code>.netmask</code>, <code>.broadcast</code>, <code>.reverse_pointer</code>, etc.</div>
             </div>
             <div class="field" style="max-width:300px">
               <label>Output format</label>
@@ -623,6 +639,7 @@
           <script src="{{ url_for('static', filename='vendor/codemirror/addon/search/searchcursor.js') }}"></script>
           <script src="{{ url_for('static', filename='vendor/codemirror/addon/search/search.js') }}"></script>
           <script src="{{ url_for('static', filename='vendor/codemirror/addon/dialog/dialog.js') }}"></script>
+          <script src="{{ url_for('static', filename='js/snippets.js') }}"></script>
           <script>
             (function () {
               var ta = document.getElementById('tmpl-content');
@@ -667,6 +684,120 @@
                   .then(function (d) {
                     show(d.valid ? 'ok' : 'err', d.message || (d.valid ? 'OK' : 'Error'));
                   });
+              });
+
+              // -------- Snippet popover --------
+              var snipBtn     = document.getElementById('btn-snippet');
+              var snipPopover = document.getElementById('snip-popover');
+              var snipInput   = document.getElementById('snip-search-input');
+              var snipListEl  = document.getElementById('snip-list');
+              var snipCountEl = document.getElementById('snip-count');
+
+              function buildSnipList(filter) {
+                while (snipListEl.firstChild) snipListEl.removeChild(snipListEl.firstChild);
+                var q = (filter || '').trim().toLowerCase();
+                var matches = (window.JINJA_SNIPPETS || []).filter(function (s) {
+                  if (!q) return true;
+                  return s.name.toLowerCase().indexOf(q) !== -1
+                      || s.body.toLowerCase().indexOf(q) !== -1
+                      || s.cat.toLowerCase().indexOf(q) !== -1;
+                });
+                snipCountEl.textContent = matches.length + ' · ' + (window.JINJA_SNIPPETS || []).length;
+                if (matches.length === 0) {
+                  var empty = document.createElement('div');
+                  empty.className = 'snip-empty';
+                  empty.textContent = 'No snippets match.';
+                  snipListEl.appendChild(empty);
+                  return;
+                }
+                var lastCat = null;
+                matches.forEach(function (s, idx) {
+                  if (s.cat !== lastCat) {
+                    var h = document.createElement('div');
+                    h.className = 'snip-cat';
+                    h.textContent = s.cat;
+                    snipListEl.appendChild(h);
+                    lastCat = s.cat;
+                  }
+                  var btn = document.createElement('button');
+                  btn.type = 'button';
+                  btn.className = 'snip-item';
+                  if (idx === 0) btn.classList.add('active');
+                  var nm = document.createElement('span');
+                  nm.className = 'snip-name';
+                  nm.textContent = s.name;
+                  var pv = document.createElement('span');
+                  pv.className = 'snip-preview';
+                  pv.textContent = s.body.replace(/\n/g, '⏎').replace(/\$\|\$/g, '◆');
+                  btn.appendChild(nm);
+                  btn.appendChild(pv);
+                  btn.addEventListener('click', function () { insertSnippet(s); });
+                  snipListEl.appendChild(btn);
+                });
+              }
+
+              function insertSnippet(snip) {
+                var body = snip.body;
+                var marker = '$|$';
+                var markerIdx = body.indexOf(marker);
+                var clean = markerIdx >= 0 ? body.replace(marker, '') : body;
+                var from = cm.getCursor('from');
+                cm.replaceSelection(clean, 'end');
+                if (markerIdx >= 0) {
+                  var before = clean.substring(0, markerIdx);
+                  var lines = before.split('\n');
+                  var line = from.line + lines.length - 1;
+                  var ch = lines.length === 1
+                    ? from.ch + lines[0].length
+                    : lines[lines.length - 1].length;
+                  cm.setCursor(line, ch);
+                }
+                closeSnip();
+                cm.focus();
+              }
+
+              function openSnip() {
+                snipPopover.classList.add('open');
+                buildSnipList('');
+                snipInput.value = '';
+                setTimeout(function () { snipInput.focus(); }, 0);
+              }
+              function closeSnip() {
+                snipPopover.classList.remove('open');
+              }
+
+              snipBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                if (snipPopover.classList.contains('open')) closeSnip(); else openSnip();
+              });
+              snipInput.addEventListener('input', function () { buildSnipList(snipInput.value); });
+              snipInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') { e.preventDefault(); closeSnip(); cm.focus(); return; }
+                var items = snipListEl.querySelectorAll('.snip-item');
+                if (!items.length) return;
+                var activeIdx = -1;
+                items.forEach(function (el, i) { if (el.classList.contains('active')) activeIdx = i; });
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  var next = Math.min(items.length - 1, activeIdx + 1);
+                  items.forEach(function (el) { el.classList.remove('active'); });
+                  items[next].classList.add('active');
+                  items[next].scrollIntoView({ block: 'nearest' });
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  var prev = Math.max(0, activeIdx - 1);
+                  items.forEach(function (el) { el.classList.remove('active'); });
+                  items[prev].classList.add('active');
+                  items[prev].scrollIntoView({ block: 'nearest' });
+                } else if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (activeIdx >= 0) items[activeIdx].click();
+                }
+              });
+              document.addEventListener('click', function (e) {
+                if (!snipPopover.classList.contains('open')) return;
+                if (snipBtn.contains(e.target) || snipPopover.contains(e.target)) return;
+                closeSnip();
               });
 
               document.getElementById('btn-detect').addEventListener('click', function () {
@@ -917,7 +1048,7 @@
                   <td class="name"><a href="{{ url_for('outputs_view', output_id=o.id) }}">{{ o.name }}</a></td>
                   <td>{% if o.batch_id %}<span class="batch">{{ o.batch_id }}</span>{% else %}—{% endif %}</td>
                   <td class="meta">{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                  <td class="actions">
+                  <td class="out-actions">
                     <a href="{{ url_for('outputs_view', output_id=o.id) }}">view</a>
                     <a href="{{ url_for('outputs_edit', output_id=o.id) }}">edit</a>
                     <a href="{{ url_for('outputs_download', output_id=o.id) }}">download</a>
