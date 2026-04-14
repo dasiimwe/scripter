@@ -1,0 +1,86 @@
+{% extends "base_op.html" %}
+{% block title %}Preview bulk — {{ script.name }} · Scripter{% endblock %}
+
+{% block content %}
+<div class="bulk-page">
+  <header class="bulk-head">
+    <div>
+      <h1 class="op-title">Preview bulk  ·  <span class="mono">{{ script.name }}</span></h1>
+      <p class="op-sub">
+        <span id="bulk-kept-count">{{ rows|length }}</span> row{% if rows|length != 1 %}s{% endif %}
+        · review and edit before generating
+      </p>
+    </div>
+  </header>
+
+  <form method="post" action="{{ url_for('wb_bulk_generate', script_id=script.id) }}">
+    <input type="hidden" name="row_count" value="{{ rows|length }}">
+
+    <div class="bulk-actions top">
+      <a href="{{ url_for('workbench', script_id=script.id, tab='run', mode='bulk') }}" class="btn btn-ghost">← Back</a>
+      <button type="submit" class="btn btn-primary">
+        Generate <span class="bulk-kept-mirror">{{ rows|length }}</span> scripts
+      </button>
+    </div>
+
+    <div class="bulk-scroll">
+      <table class="bulk-table" id="bulk-table">
+        <thead>
+          <tr>
+            <th class="drop-col" title="Tick to exclude from generation">×</th>
+            <th class="idx-col">#</th>
+            {% for f in fields %}
+              <th class="mono">
+                {{ f.name }}
+                <div class="sub">{{ f.label }}{% if f.required %} *{% endif %}</div>
+              </th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            {% set row_idx = loop.index0 %}
+            <tr class="bulk-row" data-row-idx="{{ row_idx }}">
+              <td class="drop-col">
+                <input type="checkbox" name="drop_{{ row_idx }}" value="1" class="bulk-drop" title="Drop this row">
+              </td>
+              <td class="idx-col mono">{{ loop.index }}</td>
+              {% for f in fields %}
+                <td>
+                  <input type="text" name="r{{ row_idx }}_{{ f.name }}"
+                         value="{{ row.get(f.name, '') }}" spellcheck="false" autocomplete="off">
+                </td>
+              {% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bulk-actions bottom">
+      <a href="{{ url_for('workbench', script_id=script.id, tab='run', mode='bulk') }}" class="btn btn-ghost">← Back</a>
+      <button type="submit" class="btn btn-primary">
+        Generate <span class="bulk-kept-mirror">{{ rows|length }}</span> scripts
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  (function () {
+    var total = {{ rows|length }};
+    var kept = document.getElementById('bulk-kept-count');
+    var mirrors = document.querySelectorAll('.bulk-kept-mirror');
+    document.querySelectorAll('.bulk-drop').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var tr = cb.closest('tr.bulk-row');
+        tr.classList.toggle('dropped', cb.checked);
+        var dropped = document.querySelectorAll('.bulk-drop:checked').length;
+        var remaining = total - dropped;
+        if (kept) kept.textContent = remaining;
+        mirrors.forEach(function (m) { m.textContent = remaining; });
+      });
+    });
+  })();
+</script>
+{% endblock %}

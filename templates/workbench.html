@@ -869,14 +869,14 @@
               Upload a CSV with one column per field (variable names as headers). One script will be rendered per row, grouped into a single batch.
             </p>
             <a href="{{ url_for('wb_csv_template', script_id=selected.id) }}" class="btn btn-ghost">Download CSV template</a>
-            <form method="post" action="{{ url_for('wb_bulk_generate', script_id=selected.id) }}"
+            <form method="post" action="{{ url_for('wb_bulk_preview', script_id=selected.id) }}"
                   enctype="multipart/form-data" style="margin-top:16px">
               <div class="csv-drop">
                 <div>Drop a .csv file here, or choose one:</div>
                 <input type="file" name="csv_file" accept=".csv" required>
               </div>
               <div class="actions">
-                <button type="submit" class="btn btn-primary">Generate batch</button>
+                <button type="submit" class="btn btn-primary">Review &amp; generate</button>
               </div>
             </form>
           {% else %}

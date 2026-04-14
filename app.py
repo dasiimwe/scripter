@@ -513,6 +513,33 @@ def _from_json_filter(value):
     except (ValueError, TypeError):
         return {}
 
+def _build_output_header(script, form_data, form_fields, batch_id=None, row_num=None, total_rows=None):
+    """Standard comment-header prepended to every rendered output.
+
+    Used by both single-run (workbench_run) and bulk-generate (wb_bulk_generate)
+    so both outputs look identical and are traceable back to their inputs.
+    """
+    rule_eq = '# ' + '=' * 64
+    rule_hy = '# ' + '-' * 64
+    lines = [rule_eq]
+    lines.append(f'# {script.name}   (#{script.id:04d})')
+    lines.append(f'# Generated {_utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC')
+    if batch_id:
+        tail = f'  ·  row {row_num} of {total_rows}' if (row_num and total_rows) else ''
+        lines.append(f'# Batch {batch_id}{tail}')
+    if form_fields:
+        lines.append(rule_hy)
+        pad = max((len(f.label or '') for f in form_fields), default=0)
+        for f in form_fields:
+            raw = form_data.get(f.name, '')
+            val = ', '.join(str(x) for x in raw) if isinstance(raw, list) else str(raw)
+            if len(val) > 56:
+                val = val[:53] + '...'
+            lines.append(f'# {(f.label or f.name).ljust(pad)}   {val}')
+    lines.append(rule_eq)
+    lines.append('')
+    return '\n'.join(lines)
+
 def _safe_filename(name, fallback):
     """Make a filesystem-friendly filename component from user-supplied text."""
     return re.sub(r'[^A-Za-z0-9._-]+', '_', name or '') or fallback
@@ -2085,15 +2112,7 @@ def workbench_run(script_id):
         output = tmpl.render(**form_data)
     except Exception as e:
         output = f"[Template error] {e}"
-    header = ['#' * 50, f'### Script - {script.name}']
-    for f in form_fields:
-        raw = form_data.get(f.name, '')
-        v = ', '.join(raw) if isinstance(raw, list) else str(raw)
-        if len(v) > 50:
-            v = v[:47] + '...'
-        header.append(f'# {f.label} - {v}')
-    header += ['#' * 50, '']
-    full_output = '\n'.join(header) + output
+    full_output = _build_output_header(script, form_data, form_fields) + output
     uid = current_user.id if current_user.is_authenticated else None
     submission = FormSubmission(
         script_id=script_id,
@@ -2410,66 +2429,117 @@ def wb_history_partial(script_id):
 # ---------------------------------------------------------------------------
 # CSV bulk generation + Outputs library (GeneratedScript)
 # ---------------------------------------------------------------------------
-@app.route('/workbench/<int:script_id>/bulk-generate', methods=['POST'])
+@app.route('/workbench/<int:script_id>/bulk-preview', methods=['POST'])
 @maybe_login_required
-def wb_bulk_generate(script_id):
+def wb_bulk_preview(script_id):
+    """Accept a CSV upload, parse, and render an editable preview table."""
     script = Script.query.get_or_404(script_id)
+    fields = sorted(script.form_fields, key=lambda f: f.display_order)
+    if not fields:
+        flash('Add form fields before bulk-generating.')
+        return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+
     if 'csv_file' not in request.files:
         flash('No CSV file uploaded.')
-        return redirect(url_for('workbench', script_id=script_id, tab='run'))
+        return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
     file = request.files['csv_file']
     if not file.filename:
         flash('No file selected.')
-        return redirect(url_for('workbench', script_id=script_id, tab='run'))
+        return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
     if not file.filename.lower().endswith('.csv'):
         flash('Please upload a .csv file.')
-        return redirect(url_for('workbench', script_id=script_id, tab='run'))
+        return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
+    try:
+        content = file.read().decode('utf-8-sig')
+    except UnicodeDecodeError:
+        flash('CSV must be UTF-8 encoded.')
+        return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
 
+    reader = _csv.DictReader(content.splitlines())
+    headers = reader.fieldnames or []
+    missing = {f.name for f in fields} - set(headers)
+    if missing:
+        flash(f'CSV is missing required columns: {", ".join(sorted(missing))}')
+        return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
+
+    # Keep rows in field-display order for consistent UI.
+    rows = []
+    for raw_row in reader:
+        if not any((raw_row or {}).values()):
+            continue
+        rows.append({f.name: (raw_row.get(f.name) or '').strip() for f in fields})
+
+    if not rows:
+        flash('CSV has no data rows.')
+        return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
+
+    return render_template(
+        'bulk_preview.html',
+        script=script,
+        fields=fields,
+        rows=rows,
+    )
+
+
+@app.route('/workbench/<int:script_id>/bulk-generate', methods=['POST'])
+@maybe_login_required
+def wb_bulk_generate(script_id):
+    """Receive the edited preview form, render one output per kept row."""
+    script = Script.query.get_or_404(script_id)
     fields = sorted(script.form_fields, key=lambda f: f.display_order)
     if not fields:
         flash('Add form fields before bulk-generating.')
         return redirect(url_for('workbench', script_id=script_id, tab='fields'))
 
     try:
-        content = file.read().decode('utf-8-sig')
-    except UnicodeDecodeError:
-        flash('CSV must be UTF-8 encoded.')
-        return redirect(url_for('workbench', script_id=script_id, tab='run'))
-
-    reader = _csv.DictReader(content.splitlines())
-    headers = reader.fieldnames or []
-    expected = [f.name for f in fields]
-    missing = set(expected) - set(headers)
-    if missing:
-        flash(f'CSV is missing required columns: {", ".join(sorted(missing))}')
-        return redirect(url_for('workbench', script_id=script_id, tab='run'))
+        row_count = int(request.form.get('row_count', '0'))
+    except ValueError:
+        row_count = 0
+    if row_count <= 0:
+        flash('No rows submitted.')
+        return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
 
     batch_id = uuid.uuid4().hex[:8]
     from jinja2 import Environment
     env = Environment()
-    created = 0
-    errors = 0
     uid = current_user.id if current_user.is_authenticated else None
-    for row_num, row in enumerate(reader, start=2):
-        if not any((row or {}).values()):
+
+    # Assemble per-row form_data for kept rows only.
+    kept = []
+    for i in range(row_count):
+        if request.form.get(f'drop_{i}'):
             continue
         form_data = {}
         for f in fields:
-            raw = (row.get(f.name) or '').strip()
+            raw = (request.form.get(f'r{i}_{f.name}') or '').strip()
             form_data[f.name] = IPValue(raw) if f.field_type in _IP_TYPES else raw
+        kept.append(form_data)
+
+    if not kept:
+        flash('All rows were dropped — nothing to generate.')
+        return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
+
+    created = 0
+    errors = 0
+    total_rows = len(kept)
+    for idx, form_data in enumerate(kept, start=1):
         try:
             rendered = env.from_string(script.template.content or '').render(**form_data)
         except Exception as e:
-            app.logger.error(f'bulk row {row_num} error: {e}')
+            app.logger.error(f'bulk row {idx} error: {e}')
             errors += 1
             continue
-        name_bits = [form_data[f.name][:20] for f in fields[:3] if form_data.get(f.name)]
-        name = f"{script.name} — " + (' '.join(name_bits) if name_bits else f'Row {row_num}')
+        full_output = _build_output_header(
+            script, form_data, fields,
+            batch_id=batch_id, row_num=idx, total_rows=total_rows,
+        ) + rendered
+        name_bits = [str(form_data[f.name])[:20] for f in fields[:3] if form_data.get(f.name)]
+        name = f"{script.name} — " + (' '.join(name_bits) if name_bits else f'Row {idx}')
         db.session.add(GeneratedScript(
             original_script_id=script_id,
             user_id=uid,
             name=name[:200],
-            generated_content=rendered,
+            generated_content=full_output,
             csv_row_data=json.dumps(form_data, default=str),
             batch_id=batch_id,
         ))
@@ -2479,8 +2549,8 @@ def wb_bulk_generate(script_id):
         flash(f'Generated {created} script{"s" if created != 1 else ""}.'
               + (f' {errors} row(s) failed.' if errors else ''))
         return redirect(url_for('outputs_list', batch=batch_id))
-    flash('No scripts were generated. Check your CSV.')
-    return redirect(url_for('workbench', script_id=script_id, tab='run'))
+    flash('No scripts were generated.')
+    return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
 
 @app.route('/outputs')
 @maybe_login_required
