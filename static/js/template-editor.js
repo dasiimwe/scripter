@@ -5,7 +5,8 @@ document.addEventListener('DOMContentLoaded', function() {
         theme: 'monokai',
         lineNumbers: true,
         lineWrapping: true,
-        indentUnit: 4
+        indentUnit: 4,
+        gutters: ["CodeMirror-linenumbers", "error-gutter"]
     });
     
     // Track if content has changed
@@ -30,9 +31,117 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Reset unsaved changes flag when form is submitted
-    document.querySelector('form').addEventListener('submit', function() {
-        hasUnsavedChanges = false;
+    // Validate and intercept form submission
+    let lastValidationResult = null;
+    
+    document.querySelector('form').addEventListener('submit', function(e) {
+        const templateContent = editor.getValue();
+        const scriptId = document.getElementById('script-id').value;
+        
+        // Prevent default submission to validate first
+        e.preventDefault();
+        
+        // Show loading indicator
+        const submitButton = this.querySelector('button[type="submit"]');
+        const originalText = submitButton.innerHTML;
+        submitButton.innerHTML = '<span class="icon"><i class="fas fa-spinner fa-spin"></i></span><span>Validating...</span>';
+        submitButton.disabled = true;
+        
+        // Validate template
+        fetch(`/api/scripts/${scriptId}/validate_template`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ template_content: templateContent })
+        })
+        .then(response => response.json())
+        .then(validationData => {
+            if (!validationData.valid) {
+                // Show syntax error
+                submitButton.innerHTML = originalText;
+                submitButton.disabled = false;
+                
+                const validationMessage = document.getElementById('validation-message');
+                if (validationMessage) {
+                    validationMessage.innerHTML = `<div class="notification is-danger"><button class="delete"></button><strong>Cannot save - Syntax Error:</strong> ${validationData.message}<br>Please fix the syntax error before saving.</div>`;
+                    
+                    // Add delete button functionality
+                    const deleteButton = validationMessage.querySelector('.delete');
+                    if (deleteButton) {
+                        deleteButton.addEventListener('click', function() {
+                            validationMessage.innerHTML = '';
+                        });
+                    }
+                }
+                
+                // Highlight error line if provided
+                if (validationData.line) {
+                    const errorLine = validationData.line - 1;
+                    editor.scrollIntoView({line: errorLine, ch: 0});
+                    editor.addLineClass(errorLine, "background", "line-error");
+                    
+                    // Add error marker to gutter
+                    const marker = document.createElement("div");
+                    marker.style.color = "#ff0000";
+                    marker.innerHTML = "●";
+                    marker.title = validationData.error;
+                    editor.setGutterMarker(errorLine, "error-gutter", marker);
+                }
+                
+                return Promise.reject('Syntax error');
+            }
+            
+            // Now check for undefined variables
+            return fetch(`/api/scripts/${scriptId}/detect_variables`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ template_content: templateContent })
+            });
+        })
+        .then(response => response.json())
+        .then(variableData => {
+            // Check if there are undefined variables (new variables that don't have form fields)
+            if (variableData.new_variables && variableData.new_variables.length > 0) {
+                submitButton.innerHTML = originalText;
+                submitButton.disabled = false;
+                
+                const validationMessage = document.getElementById('validation-message');
+                if (validationMessage) {
+                    validationMessage.innerHTML = `<div class="notification is-warning"><button class="delete"></button><strong>Cannot save - Undefined Variables:</strong> The template contains variables that don't have corresponding form fields: <strong>${variableData.new_variables.join(', ')}</strong><br>Please add form fields for these variables or remove them from the template.</div>`;
+                    
+                    // Add delete button functionality
+                    const deleteButton = validationMessage.querySelector('.delete');
+                    if (deleteButton) {
+                        deleteButton.addEventListener('click', function() {
+                            validationMessage.innerHTML = '';
+                        });
+                    }
+                }
+                
+                return Promise.reject('Undefined variables');
+            }
+            
+            // All validations passed, submit the form
+            hasUnsavedChanges = false;
+            submitButton.innerHTML = originalText;
+            this.submit();
+        })
+        .catch(error => {
+            if (error !== 'Syntax error' && error !== 'Undefined variables') {
+                console.error('Validation error:', error);
+                submitButton.innerHTML = originalText;
+                submitButton.disabled = false;
+                
+                // If validation fails for other reasons, show warning but allow submission
+                if (confirm('Could not validate the template. Do you want to save anyway?')) {
+                    hasUnsavedChanges = false;
+                    this.submit();
+                }
+            }
+        });
     });
     
     // Tab switching
@@ -119,6 +228,101 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
+    // Validate template button functionality
+    function validateTemplate() {
+        const scriptId = document.getElementById('script-id').value;
+        const templateContent = editor.getValue();
+        
+        // Clear any previous error markers
+        editor.clearGutter("error-gutter");
+        
+        fetch(`/api/scripts/${scriptId}/validate_template`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ template_content: templateContent })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const validationMessage = document.getElementById('validation-message');
+            
+            if (data.valid) {
+                // Show success message
+                if (validationMessage) {
+                    validationMessage.innerHTML = '<div class="notification is-success is-light"><button class="delete"></button>Template syntax is valid!</div>';
+                    // Auto-hide after 3 seconds
+                    setTimeout(() => {
+                        if (validationMessage) {
+                            validationMessage.innerHTML = '';
+                        }
+                    }, 3000);
+                }
+            } else {
+                // Show error message
+                if (validationMessage) {
+                    validationMessage.innerHTML = `<div class="notification is-danger is-light"><button class="delete"></button><strong>Syntax Error:</strong> ${data.message}</div>`;
+                }
+                
+                // Highlight the error line in CodeMirror if line number is provided
+                if (data.line) {
+                    // Line numbers in Jinja2 are 1-based, CodeMirror is 0-based
+                    const errorLine = data.line - 1;
+                    
+                    // Add error marker to gutter
+                    const marker = document.createElement("div");
+                    marker.style.color = "#ff0000";
+                    marker.innerHTML = "●";
+                    marker.title = data.error;
+                    editor.setGutterMarker(errorLine, "error-gutter", marker);
+                    
+                    // Scroll to and highlight the error line
+                    editor.scrollIntoView({line: errorLine, ch: 0});
+                    editor.addLineClass(errorLine, "background", "line-error");
+                    
+                    // Remove highlight after 5 seconds
+                    setTimeout(() => {
+                        editor.removeLineClass(errorLine, "background", "line-error");
+                    }, 5000);
+                }
+            }
+            
+            // Add delete button functionality for notifications
+            const deleteButton = validationMessage?.querySelector('.delete');
+            if (deleteButton) {
+                deleteButton.addEventListener('click', function() {
+                    validationMessage.innerHTML = '';
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error validating template:', error);
+            const validationMessage = document.getElementById('validation-message');
+            if (validationMessage) {
+                validationMessage.innerHTML = '<div class="notification is-warning is-light"><button class="delete"></button>Failed to validate template</div>';
+            }
+        });
+    }
+    
+    // Auto-validate on editor change (with debounce)
+    let validateTimeout;
+    editor.on('change', function() {
+        // Clear any previous timeout
+        clearTimeout(validateTimeout);
+        
+        // Clear previous error markers when content changes
+        editor.clearGutter("error-gutter");
+        const totalLines = editor.lineCount();
+        for (let i = 0; i < totalLines; i++) {
+            editor.removeLineClass(i, "background", "line-error");
+        }
+        
+        // Set a new timeout to validate after user stops typing (1 second delay)
+        validateTimeout = setTimeout(() => {
+            validateTemplate();
+        }, 1000);
+    });
+    
     // Detect variables button
     const scriptId = document.getElementById('script-id').value;
     document.getElementById('detect-variables').addEventListener('click', function() {
@@ -133,28 +337,63 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            const variableTagsContainer = document.getElementById('variable-tags');
-            variableTagsContainer.innerHTML = '';
+            const existingTagsContainer = document.getElementById('existing-variable-tags');
+            const newTagsContainer = document.getElementById('new-variable-tags');
+            const existingSection = document.getElementById('existing-variables-section');
+            const newSection = document.getElementById('new-variables-section');
+            
+            // Clear containers
+            existingTagsContainer.innerHTML = '';
+            newTagsContainer.innerHTML = '';
             
             if (data.variables && data.variables.length > 0) {
-                data.variables.forEach(variable => {
-                    const tag = document.createElement('span');
-                    tag.className = 'tag is-info is-medium variable-tag';
-                    tag.textContent = variable;
-                    tag.setAttribute('data-variable', variable);
-                    tag.addEventListener('click', function() {
-                        addVariableAsField(variable);
+                // Handle existing variables
+                if (data.existing_variables && data.existing_variables.length > 0) {
+                    data.existing_variables.forEach(variable => {
+                        const tag = document.createElement('span');
+                        tag.className = 'tag is-success is-medium';
+                        tag.textContent = variable;
+                        tag.title = 'Already exists as form field';
+                        existingTagsContainer.appendChild(tag);
                     });
-                    variableTagsContainer.appendChild(tag);
-                });
+                    existingSection.style.display = 'block';
+                } else {
+                    existingSection.style.display = 'none';
+                }
+                
+                // Handle new variables
+                if (data.new_variables && data.new_variables.length > 0) {
+                    data.new_variables.forEach(variable => {
+                        const tag = document.createElement('span');
+                        tag.className = 'tag is-info is-medium variable-tag';
+                        tag.textContent = variable;
+                        tag.setAttribute('data-variable', variable);
+                        tag.title = 'Click to add as form field';
+                        tag.addEventListener('click', function() {
+                            addVariableAsField(variable);
+                        });
+                        newTagsContainer.appendChild(tag);
+                    });
+                    newSection.style.display = 'block';
+                } else {
+                    // Show a message if no new variables
+                    const noNewVarsTag = document.createElement('span');
+                    noNewVarsTag.className = 'tag is-light is-medium';
+                    noNewVarsTag.textContent = 'All variables already have form fields';
+                    newTagsContainer.appendChild(noNewVarsTag);
+                    newSection.style.display = 'block';
+                }
                 
                 document.getElementById('detected-variables').classList.remove('is-hidden');
             } else {
+                // No variables detected at all
                 const noVarsTag = document.createElement('span');
                 noVarsTag.className = 'tag is-warning is-medium';
                 noVarsTag.textContent = 'No variables detected';
-                variableTagsContainer.appendChild(noVarsTag);
+                newTagsContainer.appendChild(noVarsTag);
                 
+                existingSection.style.display = 'none';
+                newSection.style.display = 'block';
                 document.getElementById('detected-variables').classList.remove('is-hidden');
             }
         })
@@ -163,18 +402,65 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Add all fields button
+    // Add all fields button (only for new variables)
     document.getElementById('add-all-fields').addEventListener('click', function() {
-        const variableTags = document.querySelectorAll('.variable-tag');
-        variableTags.forEach(tag => {
-            const variable = tag.getAttribute('data-variable');
-            addVariableAsField(variable);
+        const newVariableTags = document.querySelectorAll('#new-variable-tags .variable-tag');
+        if (newVariableTags.length === 0) {
+            alert('No new variables to add');
+            return;
+        }
+        
+        // Save the script and template first using the special endpoint that doesn't validate undefined variables
+        const nameInput = document.querySelector('input[name="name"]');
+        const statusSelect = document.querySelector('select[name="status"]');
+        const outputFormatSelect = document.querySelector('select[name="output_format"]');
+        
+        const saveData = {
+            template_content: editor.getValue(),
+            name: nameInput ? nameInput.value : '',
+            status: statusSelect ? statusSelect.value : '',
+            output_format: outputFormatSelect ? outputFormatSelect.value : 'text'
+        };
+        
+        // Save template changes using the special endpoint for adding fields
+        fetch(`/api/scripts/${scriptId}/save_template_for_fields`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(saveData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Reset the unsaved changes flag after successful save
+                hasUnsavedChanges = false;
+                originalContent = editor.getValue();
+                
+                // After template is saved, add all the new fields
+                let addPromises = [];
+                newVariableTags.forEach(tag => {
+                    const variable = tag.getAttribute('data-variable');
+                    addPromises.push(addVariableAsFieldWithoutReload(variable));
+                });
+                
+                // Wait for all fields to be added, then reload
+                Promise.all(addPromises).then(() => {
+                    location.reload();
+                });
+            } else {
+                alert('Failed to save template changes: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error saving template:', error);
+            alert('Error saving template changes: ' + error.message);
         });
     });
     
-    // Function to add a variable as a form field
-    function addVariableAsField(variable) {
-        fetch(`/api/scripts/${scriptId}/add_variable_field`, {
+    // Function to add a variable as a form field without reloading
+    function addVariableAsFieldWithoutReload(variable) {
+        return fetch(`/api/scripts/${scriptId}/add_variable_field`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -184,20 +470,92 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                // Change the tag color to indicate it's been added
-                const tags = document.querySelectorAll(`.variable-tag[data-variable="${variable}"]`);
-                tags.forEach(tag => {
-                    tag.classList.remove('is-info');
-                    tag.classList.add('is-success');
-                    tag.title = 'Added as form field';
-                });
+                // Remove the variable from the new variables section
+                const newVariableTag = document.querySelector(`#new-variable-tags .variable-tag[data-variable="${variable}"]`);
+                if (newVariableTag) {
+                    newVariableTag.remove();
+                }
+                
+                // Add to existing variables section
+                const existingTagsContainer = document.getElementById('existing-variable-tags');
+                const existingSection = document.getElementById('existing-variables-section');
+                
+                const tag = document.createElement('span');
+                tag.className = 'tag is-success is-medium';
+                tag.textContent = variable;
+                tag.title = 'Already exists as form field';
+                existingTagsContainer.appendChild(tag);
+                
+                // Show existing section if it was hidden
+                existingSection.style.display = 'block';
+                
+                // Check if no more new variables left
+                const remainingNewTags = document.querySelectorAll('#new-variable-tags .variable-tag');
+                if (remainingNewTags.length === 0) {
+                    const newTagsContainer = document.getElementById('new-variable-tags');
+                    newTagsContainer.innerHTML = '<span class="tag is-light is-medium">All variables already have form fields</span>';
+                }
+                
+                return true;
             } else {
-                alert(data.error || 'Failed to add field');
+                console.error('Failed to add field:', data.error);
+                return false;
             }
         })
         .catch(error => {
             console.error('Error adding field:', error);
-            alert('Error adding field: ' + error);
+            return false;
+        });
+    }
+    
+    // Function to add a variable as a form field (with reload for single additions)
+    function addVariableAsField(variable) {
+        // Save the script and template first when adding individual fields
+        const nameInput = document.querySelector('input[name="name"]');
+        const statusSelect = document.querySelector('select[name="status"]');
+        const outputFormatSelect = document.querySelector('select[name="output_format"]');
+        
+        const saveData = {
+            template_content: editor.getValue(),
+            name: nameInput ? nameInput.value : '',
+            status: statusSelect ? statusSelect.value : '',
+            output_format: outputFormatSelect ? outputFormatSelect.value : 'text'
+        };
+        
+        // Save template changes using the special endpoint for adding fields
+        fetch(`/api/scripts/${scriptId}/save_template_for_fields`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(saveData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Reset the unsaved changes flag after successful save
+                hasUnsavedChanges = false;
+                originalContent = editor.getValue();
+                
+                // After template is saved, add the field
+                return addVariableAsFieldWithoutReload(variable);
+            } else {
+                throw new Error(data.error || 'Failed to save template changes');
+            }
+        })
+        .then(success => {
+            if (success) {
+                // Reload after a short delay to show the update
+                setTimeout(() => {
+                    location.reload();
+                }, 500);
+            } else {
+                alert('Failed to add field');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error: ' + error.message);
         });
     }
     

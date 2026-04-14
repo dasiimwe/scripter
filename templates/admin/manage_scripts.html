@@ -17,12 +17,6 @@
     .sort-icon:hover {
         color: #3273dc;
     }
-    .script-description {
-        max-width: 300px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
     .tag-list {
         max-width: 200px;
         white-space: nowrap;
@@ -39,30 +33,48 @@
         color: #dbdbdb;
     }
     .admin-actions {
-        min-width: 220px;
+        min-width: 180px;
+    }
+    .form-fields-list {
+        max-width: 400px;
+    }
+    .field-tag {
+        font-size: 0.75rem;
+        margin: 0.1rem;
+        display: inline-block;
     }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container">
-    <h1 class="title">Manage Scripts</h1>
+    <!-- Breadcrumbs -->
+    <nav class="breadcrumb" aria-label="breadcrumbs">
+        <ul>
+            <li><a href="{{ url_for('index') }}">Home</a></li>
+            <li class="is-active"><a href="#" aria-current="page">Scripts</a></li>
+        </ul>
+    </nav>
     
     <div class="level">
         <div class="level-left">
             <div class="level-item">
-                <div class="field has-addons">
-                    <div class="control">
-                        <input class="input" type="text" id="search-input" placeholder="Search scripts...">
+                <form method="GET" action="{{ url_for('admin_scripts') }}">
+                    <input type="hidden" name="sort" value="{{ current_sort }}">
+                    <input type="hidden" name="order" value="{{ current_order }}">
+                    <div class="field has-addons">
+                        <div class="control">
+                            <input class="input" type="text" name="search" placeholder="Search scripts..." value="{{ search_query }}">
+                        </div>
+                        <div class="control">
+                            <button type="submit" class="button is-info">
+                                <span class="icon">
+                                    <i class="fas fa-search"></i>
+                                </span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="control">
-                        <button class="button is-info" id="search-button">
-                            <span class="icon">
-                                <i class="fas fa-search"></i>
-                            </span>
-                        </button>
-                    </div>
-                </div>
+                </form>
             </div>
         </div>
         <div class="level-right">
@@ -77,55 +89,77 @@
         </div>
     </div>
     
-    {% if scripts %}
+    {% if scripts_data %}
     <div class="table-container">
         <table class="table is-fullwidth is-striped is-hoverable">
             <thead>
                 <tr>
                     <th>
-                        Name
-                        <span class="icon sort-icon" data-sort="name">
-                            <i class="fas fa-sort"></i>
-                        </span>
+                        <a href="{{ url_for('admin_scripts', sort='name', order=('asc' if current_sort == 'name' and current_order == 'desc' else 'desc'), search=search_query) }}" class="has-text-dark">
+                            Name
+                            {% if current_sort == 'name' %}
+                                {% if current_order == 'asc' %}
+                                    <span class="icon"><i class="fas fa-sort-up"></i></span>
+                                {% else %}
+                                    <span class="icon"><i class="fas fa-sort-down"></i></span>
+                                {% endif %}
+                            {% else %}
+                                <span class="icon"><i class="fas fa-sort"></i></span>
+                            {% endif %}
+                        </a>
+                    </th>
+                    <th>Form Fields</th>
+                    <th>
+                        <a href="{{ url_for('admin_scripts', sort='status', order=('asc' if current_sort == 'status' and current_order == 'desc' else 'desc'), search=search_query) }}" class="has-text-dark">
+                            Status
+                            {% if current_sort == 'status' %}
+                                {% if current_order == 'asc' %}
+                                    <span class="icon"><i class="fas fa-sort-up"></i></span>
+                                {% else %}
+                                    <span class="icon"><i class="fas fa-sort-down"></i></span>
+                                {% endif %}
+                            {% else %}
+                                <span class="icon"><i class="fas fa-sort"></i></span>
+                            {% endif %}
+                        </a>
                     </th>
                     <th>
-                        Description
-                        <span class="icon sort-icon" data-sort="description">
-                            <i class="fas fa-sort"></i>
-                        </span>
-                    </th>
-                    <th>
-                        Category
-                        <span class="icon sort-icon" data-sort="category">
-                            <i class="fas fa-sort"></i>
-                        </span>
-                    </th>
-                    <th>
-                        Status
-                        <span class="icon sort-icon" data-sort="status">
-                            <i class="fas fa-sort"></i>
-                        </span>
-                    </th>
-                    <th>
-                        Created
-                        <span class="icon sort-icon" data-sort="created">
-                            <i class="fas fa-sort"></i>
-                        </span>
+                        <a href="{{ url_for('admin_scripts', sort='created', order=('asc' if current_sort == 'created' and current_order == 'desc' else 'desc'), search=search_query) }}" class="has-text-dark">
+                            Created
+                            {% if current_sort == 'created' %}
+                                {% if current_order == 'asc' %}
+                                    <span class="icon"><i class="fas fa-sort-up"></i></span>
+                                {% else %}
+                                    <span class="icon"><i class="fas fa-sort-down"></i></span>
+                                {% endif %}
+                            {% else %}
+                                <span class="icon"><i class="fas fa-sort"></i></span>
+                            {% endif %}
+                        </a>
                     </th>
                     <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
-                {% for script in scripts %}
+                {% for script_data in scripts_data %}
+                {% set script = script_data.script %}
                 <tr class="script-row" 
                     data-name="{{ script.name|lower }}" 
-                    data-description="{{ script.description|lower }}" 
-                    data-category="{{ script.category|lower }}"
                     data-status="{{ script.status|lower }}"
-                    data-created="{{ script.created_at.strftime('%Y-%m-%d') }}">
+                    data-created="{{ script.created_at.strftime('%Y-%m-%d') }}"
+                    data-fields="{{ script_data.form_fields|join(', ')|lower }}">
                     <td>{{ script.name }}</td>
-                    <td class="script-description" title="{{ script.description }}">{{ script.description }}</td>
-                    <td>{{ script.category }}</td>
+                    <td>
+                        <div class="form-fields-list">
+                            {% if script_data.form_fields %}
+                                {% for field in script_data.form_fields %}
+                                    <span class="tag is-light field-tag">{{ field }}</span>
+                                {% endfor %}
+                            {% else %}
+                                <span class="has-text-grey is-italic">No fields defined</span>
+                            {% endif %}
+                        </div>
+                    </td>
                     <td>
                         {% if script.status == 'active' %}
                         <span class="tag is-success">Active</span>
@@ -137,25 +171,49 @@
                     </td>
                     <td>{{ script.created_at.strftime('%Y-%m-%d') }}</td>
                     <td class="admin-actions">
-                        <div class="buttons are-small">
-                            <a href="{{ url_for('edit_script', script_id=script.id) }}" class="button is-info is-outlined">
-                                <span class="icon is-small">
-                                    <i class="fas fa-edit"></i>
-                                </span>
-                                <span>Edit</span>
-                            </a>
-                            <a href="{{ url_for('script_preview', script_id=script.id) }}" class="button is-success is-outlined">
-                                <span class="icon is-small">
-                                    <i class="fas fa-eye"></i>
-                                </span>
-                                <span>Preview</span>
-                            </a>
-                            <button class="button is-danger is-outlined delete-script" data-script-id="{{ script.id }}" data-script-name="{{ script.name }}">
-                                <span class="icon is-small">
-                                    <i class="fas fa-trash"></i>
-                                </span>
-                                <span>Delete</span>
-                            </button>
+                        <div class="field has-addons">
+                            <p class="control">
+                                <a href="{{ url_for('edit_script', script_id=script.id) }}" 
+                                   class="button is-small is-primary" title="Edit Script">
+                                    <span class="icon">
+                                        <i class="fas fa-edit"></i>
+                                    </span>
+                                </a>
+                            </p>
+                            <p class="control">
+                                <a href="{{ url_for('script_preview', script_id=script.id) }}" 
+                                   class="button is-small is-info" title="Preview Script">
+                                    <span class="icon">
+                                        <i class="fas fa-eye"></i>
+                                    </span>
+                                </a>
+                            </p>
+                            <p class="control">
+                                <a href="{{ url_for('script_history', script_id=script.id) }}" 
+                                   class="button is-small is-success" title="View Change History">
+                                    <span class="icon">
+                                        <i class="fas fa-history"></i>
+                                    </span>
+                                </a>
+                            </p>
+                            <p class="control">
+                                <a href="{{ url_for('export_template', script_id=script.id) }}" 
+                                   class="button is-small is-warning" title="Export Template" download>
+                                    <span class="icon">
+                                        <i class="fas fa-download"></i>
+                                    </span>
+                                </a>
+                            </p>
+                            <p class="control">
+                                <button class="button is-small is-danger delete-script" 
+                                        data-script-id="{{ script.id }}" 
+                                        data-script-name="{{ script.name }}" 
+                                        title="Delete Script">
+                                    <span class="icon">
+                                        <i class="fas fa-trash"></i>
+                                    </span>
+                                </button>
+                            </p>
                         </div>
                     </td>
                 </tr>
@@ -209,7 +267,7 @@
         </div>
         <p class="subtitle">No scripts found</p>
         <p>Get started by creating your first script</p>
-        <a href="{{ url_for('add_script') }}" class="button is-primary mt-4">
+        <a href="{{ url_for('create_script') }}" class="button is-primary mt-4">
             <span class="icon">
                 <i class="fas fa-plus"></i>
             </span>
@@ -245,7 +303,7 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     // Variables for pagination
-    const scriptRows = document.querySelectorAll('.script-row');
+    let scriptRows = document.querySelectorAll('.script-row');
     const itemsPerPageSelect = document.getElementById('items-per-page');
     const paginationNumbers = document.getElementById('pagination-numbers');
     const showingInfo = document.getElementById('showing-info');
@@ -260,93 +318,12 @@ document.addEventListener('DOMContentLoaded', function() {
         itemsPerPageSelect.value = itemsPerPage.toString();
     }
     
-    // Search functionality
-    const searchInput = document.getElementById('search-input');
-    const searchButton = document.getElementById('search-button');
-    
-    function performSearch() {
-        const searchTerm = searchInput.value.toLowerCase().trim();
-        
-        scriptRows.forEach(row => {
-            const name = row.getAttribute('data-name') || '';
-            const description = row.getAttribute('data-description') || '';
-            const category = row.getAttribute('data-category') || '';
-            const status = row.getAttribute('data-status') || '';
-            
-            const matches = 
-                name.includes(searchTerm) || 
-                description.includes(searchTerm) || 
-                category.includes(searchTerm) ||
-                status.includes(searchTerm);
-            
-            row.classList.toggle('is-hidden', !matches);
-        });
-        
-        currentPage = 1;
-        updatePagination();
-    }
-    
-    if (searchButton) {
-        searchButton.addEventListener('click', performSearch);
-    }
-    
-    if (searchInput) {
-        searchInput.addEventListener('keyup', function(e) {
-            if (e.key === 'Enter') {
-                performSearch();
-            }
-        });
-    }
-    
-    // Sorting functionality
-    const sortIcons = document.querySelectorAll('.sort-icon');
-    
-    sortIcons.forEach(icon => {
-        icon.addEventListener('click', function() {
-            const column = this.getAttribute('data-sort');
-            
-            // Toggle direction if clicking the same column
-            if (currentSort.column === column) {
-                currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
-            } else {
-                currentSort.column = column;
-                currentSort.direction = 'asc';
-            }
-            
-            // Update sort icons
-            sortIcons.forEach(icon => {
-                const iconElement = icon.querySelector('i');
-                if (icon.getAttribute('data-sort') === currentSort.column) {
-                    iconElement.className = currentSort.direction === 'asc' ? 'fas fa-sort-up' : 'fas fa-sort-down';
-                } else {
-                    iconElement.className = 'fas fa-sort';
-                }
-            });
-            
-            // Sort the rows
-            const sortedRows = Array.from(scriptRows).sort((a, b) => {
-                const aValue = a.getAttribute(`data-${column}`);
-                const bValue = b.getAttribute(`data-${column}`);
-                
-                if (currentSort.direction === 'asc') {
-                    return aValue.localeCompare(bValue);
-                } else {
-                    return bValue.localeCompare(aValue);
-                }
-            });
-            
-            // Reorder the rows in the DOM
-            const tbody = document.querySelector('tbody');
-            sortedRows.forEach(row => tbody.appendChild(row));
-            
-            // Reset to first page
-            currentPage = 1;
-            updatePagination();
-        });
-    });
     
     // Pagination functionality
     function updatePagination() {
+        // Update scriptRows to get current DOM order
+        scriptRows = document.querySelectorAll('.script-row');
+        
         // Clear pagination numbers
         paginationNumbers.innerHTML = '';
         
@@ -456,24 +433,27 @@ document.addEventListener('DOMContentLoaded', function() {
         updatePagination();
     });
     
-    // Delete script functionality
-    const deleteButtons = document.querySelectorAll('.delete-script');
+    // Delete script functionality (using event delegation for dynamic content)
     const deleteModal = document.getElementById('delete-modal');
     const closeModalButton = document.getElementById('close-modal');
     const cancelDeleteButton = document.getElementById('cancel-delete');
     const deleteForm = document.getElementById('delete-form');
     const scriptNameToDelete = document.getElementById('script-name-to-delete');
     
-    deleteButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            const scriptId = this.getAttribute('data-script-id');
-            const scriptName = this.getAttribute('data-script-name');
-            
-            deleteForm.action = `/admin/scripts/${scriptId}/delete`;
-            scriptNameToDelete.textContent = scriptName;
-            deleteModal.classList.add('is-active');
+    // Use event delegation for delete buttons
+    if (tbody) {
+        tbody.addEventListener('click', function(e) {
+            const deleteButton = e.target.closest('.delete-script');
+            if (deleteButton) {
+                const scriptId = deleteButton.getAttribute('data-script-id');
+                const scriptName = deleteButton.getAttribute('data-script-name');
+                
+                deleteForm.action = `/admin/scripts/${scriptId}/delete`;
+                scriptNameToDelete.textContent = scriptName;
+                deleteModal.classList.add('is-active');
+            }
         });
-    });
+    }
     
     function closeModal() {
         deleteModal.classList.remove('is-active');
