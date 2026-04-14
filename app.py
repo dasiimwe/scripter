@@ -96,12 +96,13 @@ class FormField(db.Model):
     script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False)
     name = db.Column(db.String(50), nullable=False)  # Variable name in template
     label = db.Column(db.String(100), nullable=False)  # Display label
-    field_type = db.Column(db.String(20), nullable=False)  # text, textarea, select, etc.
+    field_type = db.Column(db.String(30), nullable=False)  # see FIELD_TYPES
     required = db.Column(db.Boolean, default=False)
     default_value = db.Column(db.Text)
     help_text = db.Column(db.Text)
-    validation_rules = db.Column(db.Text)  # JSON or simple rules
-    conditional_logic = db.Column(db.Text)  # JSON for conditional display
+    validation_rules = db.Column(db.Text)
+    conditional_logic = db.Column(db.Text)
+    field_config = db.Column(db.Text)  # JSON: {options, min, max, step, pattern, placeholder, rows}
     display_order = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -340,6 +341,109 @@ def _from_json_filter(value):
     except (ValueError, TypeError):
         return {}
 
+# ---------------------------------------------------------------------------
+# Form field type registry
+# ---------------------------------------------------------------------------
+# Each entry: (value, label, group, {sections: set, multi: bool, html_input: str})
+# sections -- which config panels apply in the edit UI:
+#   'options'    — list of {value,label}
+#   'numeric'    — min/max/step
+#   'datetime'   — min/max (date/time/datetime-local)
+#   'textbox'    — pattern + placeholder  (single-line free text)
+#   'textarea'   — rows + placeholder
+#   'network'    — informational note, no user config
+NETWORK_PATTERNS = {
+    'ipv4_address': r'^((25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(25[0-5]|2[0-4]\d|1?\d?\d)$',
+    'ipv6_address': r'^[0-9a-fA-F:]+$',
+    'cidr':         r'^[0-9a-fA-F\.:]+/\d{1,3}$',
+    'mac_address':  r'^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$|^([0-9a-fA-F]{4}\.){2}[0-9a-fA-F]{4}$',
+    'hostname':     r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$',
+}
+
+FIELD_TYPES = [
+    # (value, label, group, sections, multi)
+    ('text',           'Text',                 'Core',    {'textbox'},  False),
+    ('textarea',       'Textarea',             'Core',    {'textarea'}, False),
+    ('password',       'Password',             'Core',    set(),        False),
+    ('email',          'Email',                'Core',    set(),        False),
+    ('url',            'URL',                  'Core',    set(),        False),
+    ('tel',            'Phone',                'Core',    {'textbox'},  False),
+    ('number',         'Number',               'Core',    {'numeric'},  False),
+    ('range',          'Range slider',         'Core',    {'numeric'},  False),
+    ('date',           'Date',                 'Core',    {'datetime'}, False),
+    ('time',           'Time',                 'Core',    {'datetime'}, False),
+    ('datetime',       'Date + time',          'Core',    {'datetime'}, False),
+    ('color',          'Color',                'Core',    set(),        False),
+
+    ('select',         'Dropdown (single)',    'Choice',  {'options'},  False),
+    ('multiselect',    'Dropdown (multiple)',  'Choice',  {'options'},  True),
+    ('radio',          'Radio buttons',        'Choice',  {'options'},  False),
+    ('checkbox_group', 'Checkbox group',       'Choice',  {'options'},  True),
+    ('checkbox',       'Single checkbox',      'Choice',  set(),        False),
+
+    ('ipv4_address',   'IPv4 address',         'Network', {'network'},  False),
+    ('ipv6_address',   'IPv6 address',         'Network', {'network'},  False),
+    ('cidr',           'CIDR (addr/prefix)',   'Network', {'network'},  False),
+    ('mac_address',    'MAC address',          'Network', {'network'},  False),
+    ('hostname',       'Hostname',             'Network', {'network'},  False),
+]
+
+FIELD_TYPES_BY_KEY = {t[0]: t for t in FIELD_TYPES}
+
+def _field_is_multi(field_type):
+    t = FIELD_TYPES_BY_KEY.get(field_type)
+    return bool(t and t[4])
+
+def _build_field_config(form):
+    """Collect type-specific config keys from a form submission into a dict.
+    Server is permissive: stores whatever the client sent, ignores empty keys."""
+    cfg = {}
+    def _num(k):
+        v = (form.get(k) or '').strip()
+        if v == '':
+            return None
+        try:
+            return int(v) if '.' not in v else float(v)
+        except ValueError:
+            return None
+
+    for key in ('config_min', 'config_max', 'config_step'):
+        v = _num(key)
+        if v is not None:
+            cfg[key.replace('config_', '')] = v
+    for key in ('config_pattern', 'config_placeholder'):
+        v = (form.get(key) or '').strip()
+        if v:
+            cfg[key.replace('config_', '')] = v
+    rows = _num('config_rows')
+    if rows is not None:
+        cfg['rows'] = rows
+
+    opt_values = form.getlist('option_value')
+    opt_labels = form.getlist('option_label')
+    options = []
+    for v, l in zip(opt_values, opt_labels):
+        v = (v or '').strip()
+        if not v:
+            continue
+        options.append({'value': v, 'label': (l or '').strip() or v})
+    if options:
+        cfg['options'] = options
+    return cfg
+
+@app.context_processor
+def inject_field_types():
+    # Group FIELD_TYPES for the edit UI's <optgroup> rendering.
+    groups = {}
+    for t in FIELD_TYPES:
+        groups.setdefault(t[2], []).append(t)
+    return dict(
+        FIELD_TYPES=FIELD_TYPES,
+        FIELD_TYPE_GROUPS=groups,
+        FIELD_TYPES_BY_KEY=FIELD_TYPES_BY_KEY,
+        NETWORK_PATTERNS=NETWORK_PATTERNS,
+    )
+
 # One-time additive schema patches for SQLite: add columns if missing.
 def _ensure_column(table, column, ddl):
     try:
@@ -355,6 +459,7 @@ def _ensure_column(table, column, ddl):
 def _startup_migrations():
     _ensure_column('auth_config', 'auth_enabled', 'auth_enabled BOOLEAN DEFAULT 1')
     _ensure_column('script',      'script_instructions', 'script_instructions TEXT')
+    _ensure_column('form_field',  'field_config', 'field_config TEXT')
 
 with app.app_context():
     try:
@@ -1643,12 +1748,40 @@ def get_script_submissions(script_id):
 # One page, four tabs in the right pane, swapped in-place via HTMX.
 # Old URLs continue to work; this page supersedes /admin/dashboard and /my-scripts.
 
-def _visible_scripts():
-    if is_auth_enabled() and not current_user.is_admin:
-        return Script.query.filter(
+_RAIL_SORTS = {
+    'modified_desc': (Script.modified_at, True),
+    'modified_asc':  (Script.modified_at, False),
+    'created_desc':  (Script.created_at,  True),
+    'created_asc':   (Script.created_at,  False),
+    'name_asc':      (Script.name,        False),
+    'name_desc':     (Script.name,        True),
+    'status_asc':    (Script.status,      False),
+}
+RAIL_SORT_LABELS = [
+    ('modified_desc', 'Recently modified'),
+    ('created_desc',  'Recently created'),
+    ('name_asc',      'Name A–Z'),
+    ('name_desc',     'Name Z–A'),
+    ('status_asc',    'Status'),
+]
+
+def _visible_scripts(q='', sort_key='modified_desc', page=1, per_page=15):
+    query = Script.query
+    if is_auth_enabled() and not (current_user.is_authenticated and current_user.is_admin):
+        query = query.filter(
             (Script.creator_id == current_user.id) | (Script.status == 'active')
-        ).order_by(Script.modified_at.desc()).all()
-    return Script.query.order_by(Script.modified_at.desc()).all()
+        )
+    if q:
+        pat = f'%{q}%'
+        query = query.filter(db.or_(
+            Script.name.ilike(pat),
+            Script.description.ilike(pat),
+            Script.category.ilike(pat),
+            Script.tags.ilike(pat),
+        ))
+    col, desc = _RAIL_SORTS.get(sort_key, _RAIL_SORTS['modified_desc'])
+    query = query.order_by(col.desc() if desc else col.asc())
+    return query.paginate(page=page, per_page=per_page, error_out=False)
 
 def _guard_edit(script):
     if not can_edit(current_user, script):
@@ -1660,14 +1793,31 @@ def _guard_edit(script):
 @app.route('/workbench/<int:script_id>', methods=['GET'])
 @maybe_login_required
 def workbench(script_id=None):
-    scripts = _visible_scripts()
+    rail_q    = (request.args.get('q') or '').strip()
+    rail_sort = request.args.get('sort', 'modified_desc')
+    rail_page = request.args.get('page', 1, type=int)
+    rail = _visible_scripts(q=rail_q, sort_key=rail_sort, page=rail_page)
+
     selected = Script.query.get(script_id) if script_id else None
-    tab = request.args.get('tab', 'details')
+    tab = request.args.get('tab', 'run')
+
+    script_outputs = None
+    if selected and tab == 'outputs':
+        q = GeneratedScript.query.filter_by(original_script_id=selected.id)
+        if is_auth_enabled() and not (current_user.is_authenticated and current_user.is_admin):
+            uid = current_user.id if current_user.is_authenticated else None
+            q = q.filter(GeneratedScript.user_id == uid)
+        script_outputs = q.order_by(GeneratedScript.created_at.desc()).limit(50).all()
+
     return render_template(
         'workbench.html',
-        scripts=scripts,
+        rail=rail,
+        rail_q=rail_q,
+        rail_sort=rail_sort,
+        RAIL_SORT_LABELS=RAIL_SORT_LABELS,
         selected=selected,
         tab=tab,
+        script_outputs=script_outputs,
     )
 
 @app.route('/workbench/new', methods=['POST'])
@@ -1789,7 +1939,14 @@ def workbench_save_template(script_id):
 def workbench_run(script_id):
     script = Script.query.get_or_404(script_id)
     form_fields = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order).all()
-    form_data = {f.name: request.form.get(f.name, '') for f in form_fields}
+    form_data = {}
+    for f in form_fields:
+        if _field_is_multi(f.field_type):
+            form_data[f.name] = request.form.getlist(f.name)
+        elif f.field_type == 'checkbox':
+            form_data[f.name] = bool(request.form.get(f.name))
+        else:
+            form_data[f.name] = request.form.get(f.name, '')
     try:
         tmpl = jinja2.Template(script.template.content if script.template else '')
         output = tmpl.render(**form_data)
@@ -1797,7 +1954,8 @@ def workbench_run(script_id):
         output = f"[Template error] {e}"
     header = ['#' * 50, f'### Script - {script.name}']
     for f in form_fields:
-        v = form_data.get(f.name, '')
+        raw = form_data.get(f.name, '')
+        v = ', '.join(raw) if isinstance(raw, list) else str(raw)
         if len(v) > 50:
             v = v[:47] + '...'
         header.append(f'# {f.label} - {v}')
@@ -1812,7 +1970,11 @@ def workbench_run(script_id):
     )
     db.session.add(submission)
     # Also write to the user-facing library.
-    name_bits = [v[:20] for v in (form_data.get(f.name, '') for f in form_fields[:2]) if v]
+    def _first_str(val):
+        if isinstance(val, list):
+            val = val[0] if val else ''
+        return str(val)[:20] if val else ''
+    name_bits = [s for s in (_first_str(form_data.get(f.name)) for f in form_fields[:2]) if s]
     gname = f"{script.name} — " + (' '.join(name_bits) if name_bits
                                     else datetime.utcnow().strftime('%Y-%m-%d %H:%M'))
     generated = GeneratedScript(
@@ -1848,6 +2010,7 @@ def workbench_add_field(script_id):
     # +10 spacing so manual reordering can insert between
     last = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order.desc()).first()
     order = (last.display_order + 10) if last else 10
+    cfg = _build_field_config(request.form)
     field = FormField(
         script_id=script_id,
         name=name,
@@ -1856,6 +2019,9 @@ def workbench_add_field(script_id):
         required=bool(request.form.get('required')),
         default_value=request.form.get('default_value') or None,
         help_text=request.form.get('help_text') or None,
+        validation_rules=request.form.get('validation_rules') or None,
+        conditional_logic=request.form.get('conditional_logic') or None,
+        field_config=json.dumps(cfg) if cfg else None,
         display_order=order,
     )
     db.session.add(field)
@@ -1863,6 +2029,62 @@ def workbench_add_field(script_id):
                 new=f'{label} ({field_type})',
                 description=f'Added field "{name}"')
     db.session.commit()
+    return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+
+@app.route('/workbench/<int:script_id>/fields/<int:field_id>/edit', methods=['POST'])
+@maybe_login_required
+def workbench_edit_field(script_id, field_id):
+    script = Script.query.get_or_404(script_id)
+    guard = _guard_edit(script)
+    if guard:
+        return guard
+    field = FormField.query.get_or_404(field_id)
+    if field.script_id != script_id:
+        flash('Invalid field.')
+        return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+
+    new_name = (request.form.get('name') or field.name).strip()
+    if not new_name:
+        flash('Variable name is required.')
+        return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+    if new_name != field.name:
+        clash = FormField.query.filter(
+            FormField.script_id == script_id,
+            FormField.name == new_name,
+            FormField.id != field_id,
+        ).first()
+        if clash:
+            flash(f'Field "{new_name}" already exists.')
+            return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+
+    cfg = _build_field_config(request.form)
+    new_config = json.dumps(cfg) if cfg else None
+    tracked = [
+        ('name',              new_name),
+        ('label',             (request.form.get('label') or new_name).strip()),
+        ('field_type',        request.form.get('field_type') or 'text'),
+        ('required',          bool(request.form.get('required'))),
+        ('default_value',     request.form.get('default_value') or None),
+        ('help_text',         request.form.get('help_text') or None),
+        ('validation_rules',  request.form.get('validation_rules') or None),
+        ('conditional_logic', request.form.get('conditional_logic') or None),
+        ('field_config',      new_config),
+    ]
+    changed = False
+    for attr, new_val in tracked:
+        old_val = getattr(field, attr)
+        if old_val != new_val:
+            _log_change(
+                script_id, 'field_edit', field_name=field.name,
+                old=str(old_val) if old_val is not None else '',
+                new=str(new_val) if new_val is not None else '',
+                description=f'Changed {attr} on field "{field.name}"',
+            )
+            setattr(field, attr, new_val)
+            changed = True
+    if changed:
+        db.session.commit()
+        flash(f'Field "{field.name}" updated.')
     return redirect(url_for('workbench', script_id=script_id, tab='fields'))
 
 @app.route('/workbench/<int:script_id>/fields/<int:field_id>/delete', methods=['POST'])
@@ -2228,6 +2450,98 @@ def outputs_delete(output_id):
     db.session.commit()
     flash(f'Deleted "{name}".')
     return redirect(url_for('outputs_list'))
+
+# ---------------------------------------------------------------------------
+# IP Helper — subnet math for IPv4 and IPv6 via stdlib `ipaddress`
+# ---------------------------------------------------------------------------
+@app.route('/api/ip-helper')
+@maybe_login_required
+def api_ip_helper():
+    import ipaddress
+    addr = (request.args.get('address') or '').strip()
+    mask = (request.args.get('mask') or '').strip()
+    if not addr:
+        return jsonify({'valid': False, 'error': 'missing address'}), 400
+
+    # Compose a CIDR-style spec from address + optional mask override.
+    bare = addr.split('/')[0].strip()
+    if mask:
+        spec = f"{bare}/{mask.lstrip('/')}"
+    elif '/' in addr:
+        spec = addr
+    else:
+        try:
+            ip = ipaddress.ip_address(bare)
+        except ValueError as e:
+            return jsonify({'valid': False, 'error': str(e)}), 400
+        spec = f"{bare}/{32 if ip.version == 4 else 128}"
+
+    # ip_interface preserves the user's specific host inside a subnet.
+    # e.g. '192.168.1.5/24' -> iface.ip = 192.168.1.5, iface.network = 192.168.1.0/24.
+    try:
+        iface = ipaddress.ip_interface(spec)
+        net = iface.network
+        host_ip = iface.ip
+    except ValueError as e:
+        return jsonify({'valid': False, 'error': str(e)}), 400
+
+    tags = []
+    if net.is_private:       tags.append('private')
+    elif net.is_global:      tags.append('global')
+    if net.is_loopback:      tags.append('loopback')
+    if net.is_link_local:    tags.append('link-local')
+    if net.is_multicast:     tags.append('multicast')
+    if net.is_reserved:      tags.append('reserved')
+    if net.is_unspecified:   tags.append('unspecified')
+    classification = f'IPv{net.version}' + (' · ' + ' · '.join(tags) if tags else '')
+
+    resp = {
+        'valid':          True,
+        'version':        net.version,
+        'input':          addr,
+        'network':        str(net.network_address),
+        'cidr':           str(net),
+        'prefix_length':  net.prefixlen,
+        'num_addresses':  str(net.num_addresses),
+        'classification': classification,
+        # When the user typed a specific host inside a subnet
+        # (e.g. 192.168.1.5/24), preserve it alongside the network math.
+        'host_address':    str(host_ip) if host_ip != net.network_address else None,
+        'host_cidr':       str(iface)   if host_ip != net.network_address else None,
+    }
+
+    if net.version == 4:
+        resp['broadcast'] = str(net.broadcast_address)
+        resp['netmask']   = str(net.netmask)
+        resp['wildcard']  = str(net.hostmask)
+        if net.prefixlen == 32:
+            resp['first_host'] = str(net.network_address)
+            resp['last_host']  = str(net.network_address)
+            resp['num_hosts']  = '1'
+        elif net.prefixlen == 31:
+            hosts = list(net.hosts())
+            resp['first_host'] = str(hosts[0]) if hosts else ''
+            resp['last_host']  = str(hosts[-1]) if hosts else ''
+            resp['num_hosts']  = str(len(hosts))
+        else:
+            resp['first_host'] = str(net.network_address + 1)
+            resp['last_host']  = str(net.broadcast_address - 1)
+            resp['num_hosts']  = str(net.num_addresses - 2)
+    else:
+        # IPv6: no broadcast; anycast at network_address is typically avoided for hosts.
+        resp['broadcast'] = None
+        resp['netmask']   = str(net.netmask)
+        resp['wildcard']  = None
+        if net.prefixlen == 128:
+            resp['first_host'] = str(net.network_address)
+            resp['last_host']  = str(net.network_address)
+            resp['num_hosts']  = '1'
+        else:
+            resp['first_host'] = str(net.network_address + 1)
+            resp['last_host']  = str(net.broadcast_address)
+            resp['num_hosts']  = str(net.num_addresses - 1)
+
+    return jsonify(resp)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5500)

@@ -59,20 +59,37 @@
 <div class="shell">
   <aside class="rail">
     <div class="rail-head">
-      <div class="label">Scripts · {{ scripts|length }}</div>
-      {% set user_can_create = (not auth_enabled) or (current_user.is_authenticated) %}
-      {% if user_can_create %}
-      <form method="post" action="{{ url_for('workbench_new') }}" class="new-form">
-        <input name="name" placeholder="New script name…" required>
-        <button type="submit">New</button>
-      </form>
-      {% endif %}
+      <div class="label">Scripts · {{ rail.total }}{% if rail_q %} · matching “{{ rail_q }}”{% endif %}</div>
     </div>
-    {% if scripts %}
+
+    {% set user_can_create = (not auth_enabled) or (current_user.is_authenticated) %}
+    <div class="rail-tool">
+      {% if user_can_create %}
+        <button type="button" class="rail-new-btn" data-rail-new-toggle>＋ New script</button>
+        <div class="rail-new-panel" data-rail-new-panel>
+          <form method="post" action="{{ url_for('workbench_new') }}" class="new-form" style="margin-top:2px">
+            <input name="name" placeholder="New script name…" required autofocus>
+            <button type="submit">Create</button>
+          </form>
+        </div>
+      {% endif %}
+
+      <form method="get" action="{{ url_for('workbench', script_id=selected.id if selected else None) }}" style="display:flex;flex-direction:column;gap:6px">
+        <input type="text" name="q" value="{{ rail_q }}" class="rail-search" placeholder="Search name, description, category, tags…">
+        <select name="sort" class="rail-sort" onchange="this.form.submit()">
+          {% for key, label in RAIL_SORT_LABELS %}
+            <option value="{{ key }}" {% if rail_sort == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <noscript><button type="submit" class="rail-new-btn">Apply</button></noscript>
+      </form>
+    </div>
+
+    {% if rail.items %}
       <ul class="list">
-        {% for s in scripts %}
+        {% for s in rail.items %}
           <li class="{% if selected and selected.id == s.id %}sel{% endif %}">
-            <a href="{{ url_for('workbench', script_id=s.id) }}">
+            <a href="{{ url_for('workbench', script_id=s.id, q=rail_q or none, sort=rail_sort if rail_sort != 'modified_desc' else none, page=rail.page if rail.page != 1 else none) }}">
               <div class="name">{{ s.name }}</div>
               <div class="meta">
                 {{ s.category or 'uncategorized' }} ·
@@ -83,7 +100,45 @@
         {% endfor %}
       </ul>
     {% else %}
-      <div class="list"><div class="empty">No scripts yet.</div></div>
+      <div class="list">
+        <div class="rail-empty">
+          {% if rail_q %}No scripts match “{{ rail_q }}”.{% else %}No scripts yet.{% endif %}
+        </div>
+      </div>
+    {% endif %}
+
+    <script>
+      (function () {
+        var btn   = document.querySelector('[data-rail-new-toggle]');
+        var panel = document.querySelector('[data-rail-new-panel]');
+        if (!btn || !panel) return;
+        btn.addEventListener('click', function () {
+          var open = panel.classList.toggle('open');
+          btn.classList.toggle('open', open);
+          if (open) {
+            var first = panel.querySelector('input[name="name"]');
+            if (first) first.focus();
+          }
+        });
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape' && panel.classList.contains('open')) {
+            panel.classList.remove('open');
+            btn.classList.remove('open');
+          }
+        });
+      })();
+    </script>
+
+    {% if rail.pages > 1 %}
+      <nav class="rail-pager" aria-label="Script list pages">
+        {% if rail.has_prev %}
+          <a href="{{ url_for('workbench', script_id=selected.id if selected else None, q=rail_q or none, sort=rail_sort if rail_sort != 'modified_desc' else none, page=rail.prev_num if rail.prev_num != 1 else none) }}">← prev</a>
+        {% else %}<span class="disabled">← prev</span>{% endif %}
+        <span class="here">page {{ rail.page }} / {{ rail.pages }}</span>
+        {% if rail.has_next %}
+          <a href="{{ url_for('workbench', script_id=selected.id if selected else None, q=rail_q or none, sort=rail_sort if rail_sort != 'modified_desc' else none, page=rail.next_num) }}">next →</a>
+        {% else %}<span class="disabled">next →</span>{% endif %}
+      </nav>
     {% endif %}
   </aside>
 
@@ -103,13 +158,14 @@
         {% if selected.description %}<p class="subtitle">{{ selected.description }}</p>{% endif %}
 
         <nav class="tabs">
-          <a class="tab {% if tab=='details' %}active{% endif %}"  href="{{ url_for('workbench', script_id=selected.id, tab='details') }}">Details</a>
-          <a class="tab {% if tab=='fields' %}active{% endif %}"   href="{{ url_for('workbench', script_id=selected.id, tab='fields') }}">Fields</a>
-          <a class="tab {% if tab=='template' %}active{% endif %}" href="{{ url_for('workbench', script_id=selected.id, tab='template') }}">Template</a>
           <a class="tab {% if tab=='run' %}active{% endif %}"      href="{{ url_for('workbench', script_id=selected.id, tab='run') }}">Run</a>
+          <a class="tab {% if tab=='details' %}active{% endif %}"  href="{{ url_for('workbench', script_id=selected.id, tab='details') }}">Details</a>
+          <a class="tab {% if tab=='template' %}active{% endif %}" href="{{ url_for('workbench', script_id=selected.id, tab='template') }}">Template</a>
+          <a class="tab {% if tab=='fields' %}active{% endif %}"   href="{{ url_for('workbench', script_id=selected.id, tab='fields') }}">Fields</a>
           {% if editable %}
           <a class="tab {% if tab=='history' %}active{% endif %}"  href="{{ url_for('workbench', script_id=selected.id, tab='history') }}">History</a>
           {% endif %}
+          <a class="tab {% if tab=='outputs' %}active{% endif %}"  href="{{ url_for('workbench', script_id=selected.id, tab='outputs') }}">Outputs</a>
         </nav>
       </header>
 
@@ -186,109 +242,340 @@
       {# ---------------- FIELDS ----------------- #}
       {% elif tab == 'fields' %}
         {% set fields = selected.form_fields|sort(attribute='display_order') %}
-        <div class="section-rule">Form fields · {{ fields|length }}</div>
+
+        {% if editable %}
+        {# Shared form body used by both edit (per-row) and add panels. #}
+        {% macro field_form_body(f=None, name_ph='hostname', label_ph='Hostname') -%}
+          {% set cfg = (f.field_config or '{}')|from_json if f else {} %}
+          <div class="field-row">
+            <div class="field">
+              <label>Variable name</label>
+              <input type="text" name="name" required placeholder="{{ name_ph }}" value="{{ f.name if f else '' }}">
+              <div class="hint">Must match a <code>{% raw %}{{ variable }}{% endraw %}</code> in your template.</div>
+            </div>
+            <div class="field">
+              <label>Display label</label>
+              <input type="text" name="label" placeholder="{{ label_ph }}" value="{{ f.label if f else '' }}">
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label>Type</label>
+              <select name="field_type" data-type-select>
+                {% set ft = f.field_type if f else 'text' %}
+                {% for group, items in FIELD_TYPE_GROUPS.items() %}
+                  <optgroup label="{{ group }}">
+                    {% for t in items %}
+                      <option value="{{ t[0] }}" {% if ft == t[0] %}selected{% endif %}>{{ t[1] }}</option>
+                    {% endfor %}
+                  </optgroup>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label>Default value</label>
+              <input type="text" name="default_value" value="{{ f.default_value or '' if f else '' }}">
+              <div class="hint">For choice types: enter one of the option values (or comma-separated for multi-choice).</div>
+            </div>
+          </div>
+
+          {# ---- type-specific config sections ---- #}
+          <div class="type-config" data-config="options" hidden>
+            <div class="section-rule">Options</div>
+            <div class="options-editor" data-options-editor>
+              {% for o in (cfg.options or []) %}
+                <div class="options-row">
+                  <input type="text" name="option_value" value="{{ o.value }}" placeholder="value">
+                  <input type="text" name="option_label" value="{{ o.label }}" placeholder="label (optional)">
+                  <button type="button" class="opt-remove" data-opt-remove>×</button>
+                </div>
+              {% endfor %}
+            </div>
+            <button type="button" class="opt-add" data-opt-add>+ Add option</button>
+            <div class="hint" style="margin-top:8px">
+              Value is what the template sees; label is what the user sees. If label is blank, it falls back to value.
+            </div>
+          </div>
+
+          <div class="type-config" data-config="numeric" hidden>
+            <div class="section-rule">Range</div>
+            <div class="triple">
+              <div class="field"><label>Min</label><input type="number" name="config_min" value="{{ cfg.get('min', '') }}"></div>
+              <div class="field"><label>Max</label><input type="number" name="config_max" value="{{ cfg.get('max', '') }}"></div>
+              <div class="field"><label>Step</label><input type="number" name="config_step" value="{{ cfg.get('step', '') }}"></div>
+            </div>
+          </div>
+
+          <div class="type-config" data-config="datetime" hidden>
+            <div class="section-rule">Bounds</div>
+            <div class="field-row">
+              <div class="field"><label>Min</label><input type="text" name="config_min" value="{{ cfg.get('min', '') }}" placeholder="YYYY-MM-DD or HH:MM"></div>
+              <div class="field"><label>Max</label><input type="text" name="config_max" value="{{ cfg.get('max', '') }}" placeholder="YYYY-MM-DD or HH:MM"></div>
+            </div>
+          </div>
+
+          <div class="type-config" data-config="textbox" hidden>
+            <div class="section-rule">Pattern + placeholder</div>
+            <div class="field-row">
+              <div class="field"><label>Pattern (regex)</label><input type="text" name="config_pattern" value="{{ cfg.get('pattern', '') }}" placeholder="^\d+$"></div>
+              <div class="field"><label>Placeholder</label><input type="text" name="config_placeholder" value="{{ cfg.get('placeholder', '') }}"></div>
+            </div>
+          </div>
+
+          <div class="type-config" data-config="textarea" hidden>
+            <div class="section-rule">Textarea</div>
+            <div class="field-row">
+              <div class="field"><label>Rows</label><input type="number" name="config_rows" value="{{ cfg.get('rows', '') }}" min="2" max="30"></div>
+              <div class="field"><label>Placeholder</label><input type="text" name="config_placeholder" value="{{ cfg.get('placeholder', '') }}"></div>
+            </div>
+          </div>
+
+          <div class="type-config" data-config="network" hidden>
+            <div class="note">Uses built-in validation for the selected address format. No config needed.</div>
+          </div>
+
+          <div class="field">
+            <label>Help text</label>
+            <input type="text" name="help_text" value="{{ f.help_text or '' if f else '' }}">
+          </div>
+          <div class="field">
+            <label>Validation rules</label>
+            <textarea name="validation_rules" style="min-height:58px" spellcheck="false">{{ f.validation_rules or '' if f else '' }}</textarea>
+            <div class="hint">Optional. JSON or free-form rule text — evaluated by the caller, not the app.</div>
+          </div>
+          <div class="field">
+            <label>Conditional logic</label>
+            <textarea name="conditional_logic" style="min-height:58px" spellcheck="false">{{ f.conditional_logic or '' if f else '' }}</textarea>
+            <div class="hint">Optional. JSON describing when this field should display.</div>
+          </div>
+          <div class="field">
+            <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-family:var(--serif);font-size:14px;color:var(--ink)">
+              <input type="checkbox" name="required" {% if f and f.required %}checked{% endif %}> Required
+            </label>
+          </div>
+        {%- endmacro %}
+
+        <div class="add-field-bar">
+          <div class="count">Form fields · {{ fields|length }}</div>
+          <button type="button" class="add-field-btn" data-add-toggle>＋ Add field</button>
+        </div>
+
+        <section class="add-field-panel" data-add-panel>
+          <div class="field-edit-panel" style="padding:0">
+            <div class="panel-head">
+              <span class="title">New field</span>
+              <span class="which">Defines one input on the Run tab.</span>
+            </div>
+            <form method="post" action="{{ url_for('workbench_add_field', script_id=selected.id) }}">
+              {{ field_form_body() }}
+              <div class="actions">
+                <button type="submit" class="btn">Add field</button>
+                <button type="button" class="btn btn-ghost" data-add-cancel>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </section>
+        {% endif %}
+
         {% if fields %}
           <table class="grid" id="fields-table" data-script-id="{{ selected.id }}">
             <thead><tr>
               {% if editable %}<th style="width:28px"></th>{% endif %}
               <th>Variable</th>
               <th>Label</th>
-              <th style="width:15%">Type</th>
-              <th style="width:15%">Required</th>
-              <th style="width:10%"></th>
+              <th style="width:12%">Type</th>
+              <th style="width:12%">Required</th>
+              {% if editable %}<th style="width:18%"></th>{% endif %}
             </tr></thead>
             <tbody id="fields-body">
               {% for f in fields %}
-              <tr data-field-id="{{ f.id }}">
+              <tr class="fld-row" data-field-id="{{ f.id }}">
                 {% if editable %}<td class="handle" title="Drag to reorder">⋮⋮</td>{% endif %}
                 <td class="name">{{ f.name }}</td>
                 <td>{{ f.label }}</td>
                 <td class="type">{{ f.field_type }}</td>
                 <td>{% if f.required %}yes{% else %}—{% endif %}</td>
-                <td>
-                  {% if editable %}
-                  <form method="post" class="inline-delete"
+                {% if editable %}
+                <td class="actions">
+                  <button type="button" class="edit-btn" data-edit-open="{{ f.id }}">Edit</button>
+                  <form method="post" class="inline-delete" style="display:inline"
                         action="{{ url_for('workbench_delete_field', script_id=selected.id, field_id=f.id) }}"
                         onsubmit="return confirm('Delete field {{ f.name }}?');">
                     <button type="submit">Delete</button>
                   </form>
-                  {% endif %}
+                </td>
+                {% endif %}
+              </tr>
+              {% if editable %}
+              <tr class="field-edit-row" data-edit-row="{{ f.id }}">
+                <td colspan="6">
+                  <div class="field-edit-panel">
+                    <div class="panel-head">
+                      <span class="title">Edit field</span>
+                      <span class="which">№ {{ '%04d' % f.id }} · {{ f.name }}</span>
+                    </div>
+                    <form method="post" action="{{ url_for('workbench_edit_field', script_id=selected.id, field_id=f.id) }}">
+                      {{ field_form_body(f=f) }}
+                      <div class="actions">
+                        <button type="submit" class="btn">Save changes</button>
+                        <button type="button" class="btn btn-ghost" data-edit-cancel="{{ f.id }}">Cancel</button>
+                      </div>
+                    </form>
+                  </div>
                 </td>
               </tr>
+              {% endif %}
               {% endfor %}
             </tbody>
           </table>
+
           {% if editable %}
           <script src="{{ url_for('static', filename='vendor/sortablejs/Sortable.min.js') }}"></script>
           <script>
             (function () {
               var body = document.getElementById('fields-body');
-              if (!body) return;
-              Sortable.create(body, {
-                handle: '.handle',
-                animation: 150,
-                ghostClass: 'sortable-ghost',
-                chosenClass: 'sortable-chosen',
-                dragClass:  'sortable-drag',
-                onEnd: function () {
-                  var ids = Array.from(body.querySelectorAll('tr[data-field-id]'))
-                                 .map(function (tr) { return { id: parseInt(tr.dataset.fieldId, 10) }; });
-                  fetch('{{ url_for("wb_reorder_fields", script_id=selected.id) }}', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ fields: ids })
-                  }).catch(function (e) { console.error('reorder failed', e); });
+              if (body) {
+                Sortable.create(body, {
+                  handle: '.handle',
+                  animation: 150,
+                  ghostClass: 'sortable-ghost',
+                  chosenClass: 'sortable-chosen',
+                  dragClass:  'sortable-drag',
+                  draggable:  'tr.fld-row',
+                  onEnd: function () {
+                    var ids = Array.from(body.querySelectorAll('tr.fld-row'))
+                      .map(function (tr) { return { id: parseInt(tr.dataset.fieldId, 10) }; });
+                    fetch('{{ url_for("wb_reorder_fields", script_id=selected.id) }}', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ fields: ids })
+                    }).catch(function (e) { console.error('reorder failed', e); });
+                  }
+                });
+              }
+
+              // Collapse/expand logic — one edit row open at a time.
+              function closeAllEdits() {
+                document.querySelectorAll('tr.field-edit-row.open').forEach(function (r) {
+                  r.classList.remove('open');
+                });
+                document.querySelectorAll('tr.fld-row.editing').forEach(function (r) {
+                  r.classList.remove('editing');
+                });
+              }
+              function closeAddPanel() {
+                var panel = document.querySelector('[data-add-panel]');
+                var btn   = document.querySelector('[data-add-toggle]');
+                if (panel) panel.classList.remove('open');
+                if (btn)   btn.classList.remove('open');
+              }
+
+              document.querySelectorAll('[data-edit-open]').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                  var id = btn.dataset.editOpen;
+                  var row   = document.querySelector('tr.field-edit-row[data-edit-row="' + id + '"]');
+                  var pRow  = btn.closest('tr.fld-row');
+                  var wasOpen = row && row.classList.contains('open');
+                  closeAllEdits();
+                  closeAddPanel();
+                  if (!wasOpen && row) {
+                    row.classList.add('open');
+                    if (pRow) pRow.classList.add('editing');
+                    var firstInput = row.querySelector('input[name="name"]');
+                    if (firstInput) firstInput.focus();
+                  }
+                });
+              });
+              document.querySelectorAll('[data-edit-cancel]').forEach(function (btn) {
+                btn.addEventListener('click', closeAllEdits);
+              });
+
+              var addBtn   = document.querySelector('[data-add-toggle]');
+              var addPanel = document.querySelector('[data-add-panel]');
+              var addCancel= document.querySelector('[data-add-cancel]');
+              if (addBtn && addPanel) {
+                addBtn.addEventListener('click', function () {
+                  var wasOpen = addPanel.classList.contains('open');
+                  closeAllEdits();
+                  if (wasOpen) {
+                    addPanel.classList.remove('open');
+                    addBtn.classList.remove('open');
+                  } else {
+                    addPanel.classList.add('open');
+                    addBtn.classList.add('open');
+                    var first = addPanel.querySelector('input[name="name"]');
+                    if (first) first.focus();
+                  }
+                });
+              }
+              if (addCancel) addCancel.addEventListener('click', closeAddPanel);
+
+              document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') { closeAllEdits(); closeAddPanel(); }
+              });
+
+              // -------- Type config show/hide + options editor --------
+              var TYPE_SECTIONS = {
+                {% for t in FIELD_TYPES %}
+                  '{{ t[0] }}': [{% for s in t[3] %}'{{ s }}'{% if not loop.last %},{% endif %}{% endfor %}]{% if not loop.last %},{% endif %}
+                {% endfor %}
+              };
+
+              function syncConfig(container) {
+                var sel = container.querySelector('[data-type-select]');
+                if (!sel) return;
+                var sections = TYPE_SECTIONS[sel.value] || [];
+                container.querySelectorAll('.type-config').forEach(function (el) {
+                  el.hidden = sections.indexOf(el.dataset.config) === -1;
+                });
+              }
+
+              function wireOptionsEditor(editor) {
+                function addRow(value, label) {
+                  var row = document.createElement('div');
+                  row.className = 'options-row';
+                  var v = document.createElement('input');
+                  v.type = 'text'; v.name = 'option_value'; v.placeholder = 'value'; v.value = value || '';
+                  var l = document.createElement('input');
+                  l.type = 'text'; l.name = 'option_label'; l.placeholder = 'label (optional)'; l.value = label || '';
+                  var x = document.createElement('button');
+                  x.type = 'button'; x.className = 'opt-remove'; x.textContent = '×';
+                  x.addEventListener('click', function () { row.remove(); });
+                  row.appendChild(v); row.appendChild(l); row.appendChild(x);
+                  editor.appendChild(row);
+                  return row;
                 }
+                editor.querySelectorAll('[data-opt-remove]').forEach(function (btn) {
+                  btn.addEventListener('click', function () { btn.closest('.options-row').remove(); });
+                });
+                var addBtn = editor.parentElement.querySelector('[data-opt-add]');
+                if (addBtn && !addBtn.dataset.wired) {
+                  addBtn.dataset.wired = '1';
+                  addBtn.addEventListener('click', function () {
+                    var row = addRow();
+                    var first = row.querySelector('input');
+                    if (first) first.focus();
+                  });
+                }
+              }
+
+              // Wire every form (add panel + each edit row).
+              document.querySelectorAll('form').forEach(function (form) {
+                if (!form.querySelector('[data-type-select]')) return;
+                syncConfig(form);
+                form.querySelector('[data-type-select]').addEventListener('change', function () { syncConfig(form); });
+                form.querySelectorAll('[data-options-editor]').forEach(wireOptionsEditor);
               });
             })();
           </script>
           {% endif %}
+        {% elif editable %}
+          <div class="field-empty-cta">
+            No fields yet.
+            <button type="button" class="link" onclick="document.querySelector('[data-add-toggle]').click()">Add the first one.</button>
+          </div>
         {% else %}
           <p class="readonly-note">No fields defined yet. Fields become inputs on the Run tab.</p>
-        {% endif %}
-
-        {% if editable %}
-          <div class="section-rule">Add a field</div>
-          <form method="post" action="{{ url_for('workbench_add_field', script_id=selected.id) }}">
-            <div class="field-row">
-              <div class="field">
-                <label>Variable name</label>
-                <input type="text" name="name" required placeholder="hostname">
-                <div class="hint">Must match a <code>{% raw %}{{ variable }}{% endraw %}</code> in your template.</div>
-              </div>
-              <div class="field">
-                <label>Display label</label>
-                <input type="text" name="label" placeholder="Hostname">
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field">
-                <label>Type</label>
-                <select name="field_type">
-                  <option value="text">Text</option>
-                  <option value="textarea">Textarea</option>
-                  <option value="number">Number</option>
-                  <option value="select">Select</option>
-                </select>
-              </div>
-              <div class="field">
-                <label>Default value</label>
-                <input type="text" name="default_value">
-              </div>
-            </div>
-            <div class="field">
-              <label>Help text</label>
-              <input type="text" name="help_text">
-            </div>
-            <div class="field">
-              <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-family:var(--serif);font-size:14px;color:var(--ink)">
-                <input type="checkbox" name="required"> Required
-              </label>
-            </div>
-            <div class="actions">
-              <button type="submit" class="btn">Add field</button>
-            </div>
-          </form>
         {% endif %}
 
       {# ---------------- TEMPLATE --------------- #}
@@ -461,17 +748,122 @@
             <p class="readonly-note">Add form fields first, then bulk-generate will be available.</p>
           {% endif %}
         {% elif fields %}
+          {% macro render_run_field(f) %}
+            {% set cfg = (f.field_config or '{}')|from_json %}
+            {% set req = ' required' if f.required else '' %}
+            {% set ph  = (' placeholder="' ~ cfg.get('placeholder','') ~ '"') if cfg.get('placeholder') else '' %}
+            {% set dv  = f.default_value or '' %}
+            {% set defaults_list = dv.split(',') if dv else [] %}
+
+            {% if f.field_type == 'textarea' %}
+              <textarea name="{{ f.name }}"{{ req }} rows="{{ cfg.get('rows', 4) }}"{{ ph|safe }}>{{ dv }}</textarea>
+
+            {% elif f.field_type == 'password' %}
+              <input type="password" name="{{ f.name }}"{{ req }}{{ ph|safe }}>
+
+            {% elif f.field_type == 'email' %}
+              <input type="email" name="{{ f.name }}" value="{{ dv }}"{{ req }}>
+
+            {% elif f.field_type == 'url' %}
+              <input type="url" name="{{ f.name }}" value="{{ dv }}"{{ req }}>
+
+            {% elif f.field_type == 'tel' %}
+              <input type="tel" name="{{ f.name }}" value="{{ dv }}"{{ req }}
+                     {% if cfg.get('pattern') %}pattern="{{ cfg.pattern }}"{% endif %}{{ ph|safe }}>
+
+            {% elif f.field_type == 'number' %}
+              <input type="number" name="{{ f.name }}" value="{{ dv }}"{{ req }}
+                     {% if cfg.get('min') is not none %}min="{{ cfg.min }}"{% endif %}
+                     {% if cfg.get('max') is not none %}max="{{ cfg.max }}"{% endif %}
+                     {% if cfg.get('step') is not none %}step="{{ cfg.step }}"{% endif %}>
+
+            {% elif f.field_type == 'range' %}
+              <div class="range-wrap">
+                <input type="range" name="{{ f.name }}" value="{{ dv or cfg.get('min', 0) }}"
+                       min="{{ cfg.get('min', 0) }}" max="{{ cfg.get('max', 100) }}"
+                       step="{{ cfg.get('step', 1) }}" oninput="this.nextElementSibling.value = this.value">
+                <output>{{ dv or cfg.get('min', 0) }}</output>
+              </div>
+
+            {% elif f.field_type == 'date' %}
+              <input type="date" name="{{ f.name }}" value="{{ dv }}"{{ req }}
+                     {% if cfg.get('min') %}min="{{ cfg.min }}"{% endif %}
+                     {% if cfg.get('max') %}max="{{ cfg.max }}"{% endif %}>
+            {% elif f.field_type == 'time' %}
+              <input type="time" name="{{ f.name }}" value="{{ dv }}"{{ req }}
+                     {% if cfg.get('min') %}min="{{ cfg.min }}"{% endif %}
+                     {% if cfg.get('max') %}max="{{ cfg.max }}"{% endif %}>
+            {% elif f.field_type == 'datetime' %}
+              <input type="datetime-local" name="{{ f.name }}" value="{{ dv }}"{{ req }}
+                     {% if cfg.get('min') %}min="{{ cfg.min }}"{% endif %}
+                     {% if cfg.get('max') %}max="{{ cfg.max }}"{% endif %}>
+
+            {% elif f.field_type == 'color' %}
+              <input type="color" name="{{ f.name }}" value="{{ dv or '#1A1A1A' }}">
+
+            {% elif f.field_type == 'select' %}
+              <select name="{{ f.name }}"{{ req }}>
+                {% if not f.required %}<option value="">— none —</option>{% endif %}
+                {% for o in (cfg.options or []) %}
+                  <option value="{{ o.value }}" {% if dv == o.value %}selected{% endif %}>{{ o.label or o.value }}</option>
+                {% endfor %}
+              </select>
+
+            {% elif f.field_type == 'multiselect' %}
+              <select name="{{ f.name }}" multiple size="{{ [(cfg.options or [])|length, 6]|min }}">
+                {% for o in (cfg.options or []) %}
+                  <option value="{{ o.value }}" {% if o.value in defaults_list %}selected{% endif %}>{{ o.label or o.value }}</option>
+                {% endfor %}
+              </select>
+              <div class="hint">Hold Cmd/Ctrl to select multiple.</div>
+
+            {% elif f.field_type == 'radio' %}
+              <div class="choice-group inline-wrap">
+                {% for o in (cfg.options or []) %}
+                  <label><input type="radio" name="{{ f.name }}" value="{{ o.value }}"
+                                {% if dv == o.value %}checked{% endif %}{{ req }}>
+                    {{ o.label or o.value }}</label>
+                {% endfor %}
+              </div>
+
+            {% elif f.field_type == 'checkbox_group' %}
+              <div class="choice-group">
+                {% for o in (cfg.options or []) %}
+                  <label><input type="checkbox" name="{{ f.name }}" value="{{ o.value }}"
+                                {% if o.value in defaults_list %}checked{% endif %}>
+                    {{ o.label or o.value }}</label>
+                {% endfor %}
+              </div>
+
+            {% elif f.field_type == 'checkbox' %}
+              <div class="single-check">
+                <label><input type="checkbox" name="{{ f.name }}" value="1"
+                              {% if dv in ('1', 'true', 'yes', 'on') %}checked{% endif %}>
+                  Yes</label>
+              </div>
+
+            {% elif f.field_type in ('ipv4_address','ipv6_address','cidr','mac_address','hostname') %}
+              <input type="text" name="{{ f.name }}" value="{{ dv }}"{{ req }}
+                     pattern="{{ NETWORK_PATTERNS.get(f.field_type, '') }}"
+                     placeholder="{% if f.field_type=='ipv4_address' %}192.168.1.1{% elif f.field_type=='ipv6_address' %}2001:db8::1{% elif f.field_type=='cidr' %}10.0.0.0/24{% elif f.field_type=='mac_address' %}aa:bb:cc:dd:ee:ff{% else %}host.example.com{% endif %}">
+
+            {% else %}
+              <input type="text" name="{{ f.name }}" value="{{ dv }}"{{ req }}
+                     {% if cfg.get('pattern') %}pattern="{{ cfg.pattern }}"{% endif %}{{ ph|safe }}>
+            {% endif %}
+          {% endmacro %}
+
           <form hx-post="{{ url_for('workbench_run', script_id=selected.id) }}"
-                hx-target="#run-output" hx-swap="innerHTML">
+                hx-target="#run-output" hx-swap="innerHTML"
+                data-ip-helper-scope data-ip-helper-url="{{ url_for('api_ip_helper') }}">
             {% for f in fields %}
               <div class="field">
-                <label>{{ f.label }}{% if f.required %} *{% endif %}</label>
-                {% if f.field_type == 'textarea' %}
-                  <textarea name="{{ f.name }}" {% if f.required %}required{% endif %}>{{ f.default_value or '' }}</textarea>
-                {% elif f.field_type == 'number' %}
-                  <input type="number" name="{{ f.name }}" value="{{ f.default_value or '' }}" {% if f.required %}required{% endif %}>
-                {% else %}
-                  <input type="text" name="{{ f.name }}" value="{{ f.default_value or '' }}" {% if f.required %}required{% endif %}>
+                {% if f.field_type != 'checkbox' %}
+                  <label>{{ f.label }}{% if f.required %} *{% endif %}</label>
+                {% endif %}
+                {{ render_run_field(f) }}
+                {% if f.field_type == 'checkbox' %}
+                  <div class="hint" style="margin-top:4px">{{ f.label }}{% if f.required %} *{% endif %}</div>
                 {% endif %}
                 {% if f.help_text %}<div class="hint">{{ f.help_text }}</div>{% endif %}
               </div>
@@ -480,6 +872,7 @@
               <button type="submit" class="btn btn-primary">Generate output</button>
             </div>
           </form>
+          <script src="{{ url_for('static', filename='js/iphelper.js') }}" defer></script>
         {% else %}
           <p class="readonly-note">This script has no input fields. Add some on the Fields tab, or click below to render with an empty context.</p>
           <form hx-post="{{ url_for('workbench_run', script_id=selected.id) }}"
@@ -496,6 +889,46 @@
              hx-trigger="load" hx-swap="innerHTML">
           <p class="readonly-note">Loading history…</p>
         </div>
+
+      {# ---------------- OUTPUTS --------------- #}
+      {% elif tab == 'outputs' %}
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">
+          <div class="section-rule" style="margin:0;border:none;padding:0">
+            Outputs for this script · {{ (script_outputs or [])|length }}{% if (script_outputs or [])|length == 50 %}+{% endif %}
+          </div>
+          <a href="{{ url_for('outputs_list', script_id=selected.id) }}" class="btn btn-ghost" style="font-size:10.5px;padding:5px 12px">Open full library</a>
+        </div>
+
+        {% if script_outputs %}
+          <table class="outputs">
+            <thead><tr>
+              <th>Name</th>
+              <th style="width:14%">Batch</th>
+              <th style="width:18%">Created</th>
+              <th style="width:24%"></th>
+            </tr></thead>
+            <tbody>
+              {% for o in script_outputs %}
+                <tr>
+                  <td class="name"><a href="{{ url_for('outputs_view', output_id=o.id) }}">{{ o.name }}</a></td>
+                  <td>{% if o.batch_id %}<span class="batch">{{ o.batch_id }}</span>{% else %}—{% endif %}</td>
+                  <td class="meta">{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                  <td class="actions">
+                    <a href="{{ url_for('outputs_view', output_id=o.id) }}">view</a>
+                    <a href="{{ url_for('outputs_edit', output_id=o.id) }}">edit</a>
+                    <a href="{{ url_for('outputs_download', output_id=o.id) }}">download</a>
+                    <form method="post" action="{{ url_for('outputs_delete', output_id=o.id) }}"
+                          style="display:inline" onsubmit="return confirm('Delete this output?');">
+                      <button type="submit" class="del">delete</button>
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="readonly-note">No outputs yet. Run the script once to populate the library.</p>
+        {% endif %}
       {% endif %}
 
         <div class="colophon">
