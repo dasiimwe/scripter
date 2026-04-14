@@ -1,56 +1,40 @@
-{% extends "base.html" %}
+{% extends "base_op.html" %}
 
-{% block title %}Login{% endblock %}
+{% block title %}Sign in · Scripter{% endblock %}
 
 {% block content %}
-<div class="container">
-    <div class="columns is-centered">
-        <div class="column is-half">
-            <div class="box">
-                <h1 class="title has-text-centered">Login</h1>
-                
-                <form method="POST" action="{{ url_for('login') }}">
-                    {{ form.csrf_token }}
-                    
-                    <div class="field">
-                        <label class="label">Username</label>
-                        <div class="control has-icons-left">
-                            {{ form.username(class="input", placeholder="Username") }}
-                            <span class="icon is-small is-left">
-                                <i class="fas fa-user"></i>
-                            </span>
-                        </div>
-                    </div>
-                    
-                    <div class="field">
-                        <label class="label">Password</label>
-                        <div class="control has-icons-left">
-                            {{ form.password(class="input", placeholder="Password") }}
-                            <span class="icon is-small is-left">
-                                <i class="fas fa-lock"></i>
-                            </span>
-                        </div>
-                    </div>
-                    
-                    <div class="field">
-                        <div class="control">
-                            <label class="checkbox">
-                                {{ form.remember_me() }}
-                                Remember me
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="field">
-                        <div class="control">
-                            <button type="submit" class="button is-primary is-fullwidth">
-                                Login
-                            </button>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
+<div class="op-page narrow">
+  <h1 class="op-title">Sign in</h1>
+  <p class="op-sub">Authenticate to continue.</p>
+
+  <div class="op-card">
+    <form method="POST" action="{{ url_for('login') }}">
+      {{ form.csrf_token }}
+
+      <div class="field">
+        <label>Username</label>
+        {{ form.username(placeholder="", autofocus=True, autocomplete="username") }}
+      </div>
+
+      <div class="field">
+        <label>Password</label>
+        {{ form.password(placeholder="", autocomplete="current-password") }}
+      </div>
+
+      <div class="field">
+        <label class="op-toggle" style="font-family: var(--serif); text-transform:none; letter-spacing:0; color:var(--ink); font-size:14px">
+          {{ form.remember_me() }} Remember me
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="btn btn-primary" style="width:100%">Sign in</button>
+      </div>
+    </form>
+  </div>
+
+  <p class="op-help" style="text-align:center">
+    To disable authentication entirely, set <code style="font-family:var(--mono)">AUTH_ENABLED=false</code> at startup or flip it in Auth Config.
+  </p>
 </div>
-{% endblock %} 
+{% endblock %}

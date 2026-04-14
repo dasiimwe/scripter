@@ -1,172 +1,159 @@
-{% extends "base.html" %}
+{% extends "base_op.html" %}
 
-{% block title %}Authentication Configuration{% endblock %}
+{% block title %}Auth · Scripter{% endblock %}
 
 {% block content %}
-<div class="container">
-    <h1 class="title">Authentication Configuration</h1>
-    <p class="subtitle">Configure system authentication methods</p>
-    
-    <div class="box">
-        <form method="POST">
-            {{ form.csrf_token }}
-            
-            <div class="field">
-                <label class="label">Default Authentication Method</label>
-                <div class="control">
-                    <div class="select is-fullwidth">
-                        {{ form.auth_type() }}
-                    </div>
-                </div>
-                <p class="help">This setting determines the default authentication method for new users.</p>
-            </div>
-            
-            <div class="notification is-info is-light">
-                <p><strong>TACACS+ Configuration</strong></p>
-                <p>Configure these settings to enable TACACS+ authentication.</p>
-            </div>
-            
-            <div class="field">
-                <label class="label">TACACS+ Server</label>
-                <div class="control">
-                    {{ form.tacacs_server(class="input") }}
-                </div>
-                <p class="help">IP address or hostname of the TACACS+ server</p>
-            </div>
-            
-            <div class="field">
-                <label class="label">TACACS+ Port</label>
-                <div class="control">
-                    {{ form.tacacs_port(class="input") }}
-                </div>
-                <p class="help">Default TACACS+ port is 49</p>
-            </div>
-            
-            <div class="field">
-                <label class="label">TACACS+ Secret</label>
-                <div class="control">
-                    {{ form.tacacs_secret(class="input") }}
-                </div>
-                <p class="help">
-                    {% if config and config.tacacs_secret %}
-                    Leave blank to keep current secret.
-                    {% else %}
-                    Shared secret for TACACS+ authentication.
-                    {% endif %}
-                </p>
-            </div>
-            
-            <div class="field">
-                <label class="label">TACACS+ Timeout (seconds)</label>
-                <div class="control">
-                    {{ form.tacacs_timeout(class="input") }}
-                </div>
-                <p class="help">Connection timeout in seconds</p>
-            </div>
-            
-            <div class="field">
-                <label class="label">TACACS+ Service Name</label>
-                <div class="control">
-                    {{ form.tacacs_service(class="input") }}
-                </div>
-                <p class="help">Service name to send to the TACACS+ server</p>
-            </div>
-            
-            <div class="field is-grouped">
-                <div class="control">
-                    <button type="submit" class="button is-primary">
-                        Save Configuration
-                    </button>
-                </div>
-                <div class="control">
-                    <a href="{{ url_for('admin_users') }}" class="button is-light">
-                        Cancel
-                    </a>
-                </div>
-            </div>
-        </form>
+<div class="op-page">
+  <h1 class="op-title">Authentication</h1>
+  <p class="op-sub">How the app identifies the person on the other side of the screen.</p>
+
+  {% if _AUTH_ENV_ACTIVE %}
+  <div class="op-note-danger">
+    <strong>ENV OVERRIDE IS ACTIVE.</strong> The <code>AUTH_ENABLED</code> environment variable
+    is set and takes precedence over the toggle below. The toggle will save, but will not take
+    effect until the env var is unset.
+  </div>
+  {% endif %}
+
+  <form method="POST">
+    {{ form.csrf_token }}
+
+    <div class="op-card">
+      <h2>Access Mode</h2>
+
+      <div class="field">
+        <label class="op-toggle" style="text-transform:none;letter-spacing:0;color:var(--ink);font-size:15px;font-family:var(--serif)">
+          {{ form.auth_enabled() }} Require login to use the app
+        </label>
+        <div class="op-help">
+          When off, the app is fully open: anyone who reaches the URL can view, create, edit,
+          and run every script. Use only on trusted networks or localhost.
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Default Authentication Method</label>
+        {{ form.auth_type() }}
+        <div class="op-help">Method used when creating new users or authenticating unknown usernames.</div>
+      </div>
     </div>
-    
-    <div class="box">
-        <h2 class="title is-5">Test TACACS+ Connection</h2>
-        <p>Use this form to test the TACACS+ connection without affecting your current configuration.</p>
-        
-        <form id="test-tacacs-form" class="mt-4">
-            <div class="field">
-                <label class="label">Username</label>
-                <div class="control">
-                    <input type="text" class="input" id="test-username" required>
-                </div>
-            </div>
-            
-            <div class="field">
-                <label class="label">Password</label>
-                <div class="control">
-                    <input type="password" class="input" id="test-password" required>
-                </div>
-            </div>
-            
-            <div class="field is-grouped">
-                <div class="control">
-                    <button type="submit" class="button is-info" id="test-button">
-                        Test Connection
-                    </button>
-                </div>
-            </div>
-            
-            <div id="test-result" class="mt-4" style="display: none;"></div>
-        </form>
+
+    <div class="op-card">
+      <h2>TACACS+ Settings</h2>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Server</label>
+          {{ form.tacacs_server() }}
+          <div class="op-help">IP or hostname.</div>
+        </div>
+        <div class="field">
+          <label>Port</label>
+          {{ form.tacacs_port() }}
+          <div class="op-help">Default is 49.</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Shared Secret</label>
+        {{ form.tacacs_secret() }}
+        <div class="op-help">
+          {% if config and config.tacacs_secret %}
+          Leave blank to keep the existing secret.
+          {% else %}
+          Shared secret used when authenticating against the TACACS+ server.
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label>Timeout (seconds)</label>
+          {{ form.tacacs_timeout() }}
+        </div>
+        <div class="field">
+          <label>Service Name</label>
+          {{ form.tacacs_service() }}
+          <div class="op-help">Service string sent to the server.</div>
+        </div>
+      </div>
     </div>
+
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">Save configuration</button>
+      <a href="{{ url_for('workbench') }}" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+
+  <div class="op-card" style="margin-top:32px">
+    <h2>Test TACACS+ Connection</h2>
+    <p class="op-help" style="margin-bottom:18px">
+      Tests credentials against the saved configuration. Does not log you in.
+    </p>
+
+    <form id="test-tacacs-form">
+      <div class="field-row">
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="test-username" required>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="test-password" required>
+        </div>
+      </div>
+      <div class="actions">
+        <button type="submit" class="btn" id="test-button">Test connection</button>
+      </div>
+      <div id="test-result" style="display:none;margin-top:14px"></div>
+    </form>
+  </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
+<style>
+  #test-result.ok  { background: var(--canvas-sunk); border-left: 3px solid #2F6B2F; padding: 10px 14px; font-family: var(--mono); font-size: 12.5px; color: #2F6B2F; }
+  #test-result.err { background: var(--accent-soft); border-left: 3px solid var(--danger); padding: 10px 14px; font-family: var(--mono); font-size: 12.5px; color: var(--danger); }
+</style>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const testForm = document.getElementById('test-tacacs-form');
-    const testButton = document.getElementById('test-button');
-    const testResult = document.getElementById('test-result');
-    
-    testForm.addEventListener('submit', function(e) {
-        e.preventDefault();
-        
-        const username = document.getElementById('test-username').value;
-        const password = document.getElementById('test-password').value;
-        
-        testButton.classList.add('is-loading');
-        testResult.style.display = 'none';
-        
-        // Send test request to server
-        fetch('/admin/test-tacacs', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                username: username,
-                password: password
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            testButton.classList.remove('is-loading');
-            testResult.style.display = 'block';
-            
-            if (data.success) {
-                testResult.className = 'notification is-success';
-                testResult.innerHTML = '<p><strong>Success!</strong> TACACS+ authentication successful.</p>';
-            } else {
-                testResult.className = 'notification is-danger';
-                testResult.innerHTML = `<p><strong>Failed!</strong> ${data.message}</p>`;
-            }
-        })
-        .catch(error => {
-            testButton.classList.remove('is-loading');
-            testResult.style.display = 'block';
-            testResult.className = 'notification is-danger';
-            testResult.innerHTML = `<p><strong>Error!</strong> ${error.message}</p>`;
-        });
+  const form = document.getElementById('test-tacacs-form');
+  const btn  = document.getElementById('test-button');
+  const out  = document.getElementById('test-result');
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    const username = document.getElementById('test-username').value;
+    const password = document.getElementById('test-password').value;
+
+    btn.disabled = true;
+    btn.textContent = 'Testing…';
+    out.style.display = 'none';
+
+    fetch('/admin/test-tacacs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    })
+    .then(r => r.json())
+    .then(data => {
+      out.style.display = 'block';
+      out.className = data.success ? 'ok' : 'err';
+      out.textContent = data.success
+        ? 'Success. TACACS+ authentication returned accept.'
+        : 'Failed. ' + (data.message || 'Unknown error.');
+    })
+    .catch(err => {
+      out.style.display = 'block';
+      out.className = 'err';
+      out.textContent = 'Error: ' + err.message;
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = 'Test connection';
     });
+  });
 });
 </script>
-{% endblock %} 
+{% endblock %}

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Scripter{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/workbench.css') }}">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('scripter.theme');
+        if (t === 'operator' || t === 'datasheet') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) { /* localStorage unavailable — default theme wins */ }
+    })();
+  </script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}" defer></script>
+  {% block head_extra %}{% endblock %}
+  <style>
+    .op-page { max-width: 720px; margin: 0 auto; padding: 48px 32px 80px; }
+    .op-page.narrow { max-width: 440px; }
+    .op-title {
+      font-family: var(--serif);
+      font-weight: 400;
+      font-size: 36px;
+      letter-spacing: -0.01em;
+      margin: 0 0 6px;
+    }
+    .op-sub {
+      font-family: var(--serif);
+      font-style: italic;
+      color: var(--ink-muted);
+      margin: 0 0 32px;
+      font-size: 15px;
+    }
+    .op-card {
+      border: 1px solid var(--rule-strong);
+      background: var(--canvas-soft);
+      padding: 26px 28px;
+      margin-bottom: 22px;
+    }
+    .op-card h2 {
+      font-family: var(--mono);
+      font-size: 11.5px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+      margin: 0 0 18px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--rule);
+    }
+    .op-help {
+      font-family: var(--serif);
+      font-style: italic;
+      color: var(--ink-muted);
+      font-size: 13px;
+      margin-top: 4px;
+    }
+    .op-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--serif);
+      font-size: 14.5px;
+    }
+    .op-toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
+    .op-note-danger {
+      background: var(--accent-soft);
+      border-left: 3px solid var(--accent);
+      padding: 12px 16px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent-ink);
+      margin-bottom: 18px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+
+<header class="top">
+  <div class="mark"><a href="{{ url_for('workbench') if current_user.is_authenticated or not auth_enabled else url_for('login') }}" style="border:none;color:inherit"><span class="dot"></span>Scripter</a></div>
+  <div class="mode">
+    Mode —
+    {% if auth_enabled %}<b>Authenticated</b>{% else %}<b>Open</b>{% endif %}
+    {% if current_user.is_authenticated and auth_enabled %}· {{ current_user.username }}{% endif %}
+  </div>
+  {% include 'partials/theme_selector.html' %}
+  <nav>
+    {% if current_user.is_authenticated %}
+      <a href="{{ url_for('workbench') }}">Workbench</a>
+    {% endif %}
+    {% if can_admin(current_user) %}
+      <a href="{{ url_for('admin_users') }}">Users</a>
+      <a href="{{ url_for('auth_config') }}">Auth</a>
+    {% endif %}
+    {% if auth_enabled and current_user.is_authenticated %}
+      <a href="{{ url_for('logout') }}">Sign out</a>
+    {% elif auth_enabled %}
+      <a href="{{ url_for('login') }}">Sign in</a>
+    {% endif %}
+  </nav>
+</header>
+
+{% with messages = get_flashed_messages() %}
+  {% for message in messages %}
+    <div class="flash" style="margin: 16px auto; max-width: 720px;">— {{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+{% block content %}{% endblock %}
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

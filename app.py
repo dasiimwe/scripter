@@ -13,6 +13,10 @@ from wtforms import StringField, PasswordField, BooleanField, SelectField, TextA
 from wtforms.validators import DataRequired, Email, EqualTo, Length, Optional
 import tacacs_plus
 from tacacs_plus.client import TACACSClient
+import difflib
+import re
+import csv as _csv
+import io
 # from flask_wtf.csrf import CSRFProtect
 
 # Create instance directory if it doesn't exist
@@ -64,16 +68,19 @@ class Script(db.Model):
     description = db.Column(db.Text)
     category = db.Column(db.String(50))
     tags = db.Column(db.String(200))
+    script_instructions = db.Column(db.Text)  # rich HTML (Trix) — shown to end users on Run
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     creator_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     status = db.Column(db.String(20), default='draft')  # draft, active, archived
-    
+
     # Relationships
     creator = db.relationship('User', backref='scripts')
     template = db.relationship('Template', backref='script', uselist=False, cascade='all, delete-orphan')
     form_fields = db.relationship('FormField', backref='script', cascade='all, delete-orphan')
     submissions = db.relationship('FormSubmission', backref='script', cascade='all, delete-orphan')
+    changes = db.relationship('ScriptChange', backref='script', cascade='all, delete-orphan', order_by='ScriptChange.change_date.desc()')
+    generated_scripts = db.relationship('GeneratedScript', backref='original_script', cascade='all, delete-orphan')
 
 class Template(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -112,6 +119,7 @@ class FormSubmission(db.Model):
 class AuthConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     auth_type = db.Column(db.String(20), default='local')  # 'local' or 'tacacs'
+    auth_enabled = db.Column(db.Boolean, default=True)  # False = open mode, no login required
     tacacs_server = db.Column(db.String(255))
     tacacs_port = db.Column(db.Integer, default=49)
     tacacs_secret = db.Column(db.String(255))
@@ -119,6 +127,35 @@ class AuthConfig(db.Model):
     tacacs_service = db.Column(db.String(50), default='scripter')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class ScriptChange(db.Model):
+    """Append-only audit log of edits to a script and its children."""
+    id = db.Column(db.Integer, primary_key=True)
+    script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    change_type = db.Column(db.String(50), nullable=False)  # script_edit, template_edit, field_add, field_edit, field_delete
+    change_date = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    field_name = db.Column(db.String(100))
+    old_value = db.Column(db.Text)
+    new_value = db.Column(db.Text)
+    description = db.Column(db.Text)
+
+    user = db.relationship('User', backref='script_changes')
+
+class GeneratedScript(db.Model):
+    """A rendered output from a Script. Acts as the user-visible library entry."""
+    id = db.Column(db.Integer, primary_key=True)
+    original_script_id = db.Column(db.Integer, db.ForeignKey('script.id'), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    name = db.Column(db.String(200), nullable=False)
+    generated_content = db.Column(db.Text, nullable=False)
+    csv_row_data = db.Column(db.Text)   # JSON blob of the input values
+    batch_id = db.Column(db.String(50), index=True)  # groups bulk runs
+    status = db.Column(db.String(20), default='active')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    modified_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref='generated_scripts')
 
 class FormDraft(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -137,17 +174,206 @@ class FormDraft(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+# ---------------------------------------------------------------------------
+# Auth toggle + permission helpers
+# ---------------------------------------------------------------------------
+# Env override wins. If unset, the effective state comes from AuthConfig.auth_enabled.
+# Values: 'true'/'1'/'yes' -> force on, 'false'/'0'/'no' -> force off, unset -> DB.
+_AUTH_ENV = os.environ.get('AUTH_ENABLED', '').strip().lower()
+LOCAL_USERNAME = 'local'
+
+def _env_override():
+    if _AUTH_ENV in ('1', 'true', 'yes', 'on'):
+        return True
+    if _AUTH_ENV in ('0', 'false', 'no', 'off'):
+        return False
+    return None
+
+def is_auth_enabled():
+    override = _env_override()
+    if override is not None:
+        return override
+    try:
+        cfg = AuthConfig.query.first()
+        return True if cfg is None else bool(cfg.auth_enabled)
+    except Exception:
+        return True  # fail closed: if DB is unreachable, require auth
+
+def ensure_local_user():
+    """Seed the shared 'local' user used when auth is disabled. Idempotent."""
+    user = User.query.filter_by(username=LOCAL_USERNAME).first()
+    if user is None:
+        user = User(
+            username=LOCAL_USERNAME,
+            email='local@scripter.local',
+            full_name='Local User',
+            is_admin=True,
+            is_active=True,
+            auth_type='local',
+        )
+        user.set_password(uuid.uuid4().hex)  # unusable password; never logged in via form
+        db.session.add(user)
+        db.session.commit()
+    return user
+
+@app.before_request
+def auto_login_local_user():
+    """In no-auth mode, transparently log in as the shared local user."""
+    if not is_auth_enabled():
+        if not current_user.is_authenticated:
+            try:
+                user = ensure_local_user()
+                login_user(user)
+            except Exception as e:
+                app.logger.warning(f"auto_login failed: {e}")
+
+def maybe_login_required(view):
+    """login_required when auth is on; pass-through when off."""
+    from functools import wraps
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if is_auth_enabled():
+            return login_required(view)(*args, **kwargs)
+        return view(*args, **kwargs)
+    return wrapper
+
+def can_admin(user):
+    """Who can see Settings (Users, Auth Config)? Never in no-auth mode — those pages
+    are meaningless without real identities."""
+    if not is_auth_enabled():
+        return False
+    return bool(user and getattr(user, 'is_authenticated', False) and user.is_admin)
+
+def can_edit(user, script):
+    """Who can add/edit/delete scripts?
+
+    TODO(you): implement this. Rules to encode:
+      1. If auth is disabled (is_auth_enabled() == False), everyone can edit.
+      2. Otherwise, admins can edit any script.
+      3. Otherwise, only the script's creator can edit their own.
+
+    Return True or False.
+    """
+    if not is_auth_enabled():
+        return True
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if user.is_admin:
+        return True
+    return script is not None and script.creator_id == user.id
+
+@app.context_processor
+def inject_auth_helpers():
+    """Make helpers usable inside Jinja templates."""
+    return dict(
+        auth_enabled=is_auth_enabled(),
+        can_admin=can_admin,
+        can_edit=can_edit,
+        _AUTH_ENV_ACTIVE=(_env_override() is not None),
+    )
+
+# ---------------------------------------------------------------------------
+# Audit log + diff + template-variable helpers
+# ---------------------------------------------------------------------------
+CHANGE_TYPE_LABELS = {
+    'script_edit':   'Script',
+    'template_edit': 'Template',
+    'field_add':     'Field added',
+    'field_edit':    'Field edited',
+    'field_delete':  'Field removed',
+}
+
+def _log_change(script_id, change_type, field_name=None, old=None, new=None, description=None):
+    """Append a ScriptChange row. Caller is responsible for db.session.commit()."""
+    if old is None and new is None and description is None:
+        return  # nothing meaningful to record
+    uid = current_user.id if current_user.is_authenticated else None
+    db.session.add(ScriptChange(
+        script_id=script_id,
+        user_id=uid,
+        change_type=change_type,
+        field_name=field_name,
+        old_value=None if old is None else str(old),
+        new_value=None if new is None else str(new),
+        description=description,
+    ))
+
+def generate_diff(old_text, new_text):
+    """Return a list of {type, content} dicts for templated rendering of a unified diff."""
+    old_lines = (old_text or '').splitlines(keepends=True)
+    new_lines = (new_text or '').splitlines(keepends=True)
+    diff = difflib.unified_diff(
+        old_lines, new_lines,
+        fromfile='Previous', tofile='Current', lineterm=''
+    )
+    out = []
+    for line in diff:
+        if line.startswith('+++') or line.startswith('---'):
+            continue
+        if line.startswith('@@'):
+            out.append({'type': 'header',  'content': line})
+        elif line.startswith('+'):
+            out.append({'type': 'add',     'content': line[1:]})
+        elif line.startswith('-'):
+            out.append({'type': 'delete',  'content': line[1:]})
+        elif line.startswith(' '):
+            out.append({'type': 'context', 'content': line[1:]})
+        else:
+            out.append({'type': 'context', 'content': line})
+    return out
+
+_VAR_RE       = re.compile(r'\{\{\s*(\w+)\s*\}\}')
+_VAR_ATTR_RE  = re.compile(r'\{\{\s*(\w+)\.\w+\s*\}\}')
+
+def _detect_template_variables(content):
+    """Return the set of top-level variable names referenced by {{ }} in content."""
+    if not content:
+        return set()
+    found = set(_VAR_RE.findall(content))
+    found.update(_VAR_ATTR_RE.findall(content))
+    return found
+
+@app.template_filter('from_json')
+def _from_json_filter(value):
+    try:
+        return json.loads(value) if value else {}
+    except (ValueError, TypeError):
+        return {}
+
+# One-time additive schema patches for SQLite: add columns if missing.
+def _ensure_column(table, column, ddl):
+    try:
+        with db.engine.connect() as conn:
+            cols = [row[1] for row in conn.exec_driver_sql(f"PRAGMA table_info({table})")]
+            if cols and column not in cols:
+                conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+                conn.commit()
+                app.logger.info(f"Migrated: added {table}.{column}")
+    except Exception as e:
+        app.logger.warning(f"migration {table}.{column} skipped: {e}")
+
+def _startup_migrations():
+    _ensure_column('auth_config', 'auth_enabled', 'auth_enabled BOOLEAN DEFAULT 1')
+    _ensure_column('script',      'script_instructions', 'script_instructions TEXT')
+
+with app.app_context():
+    try:
+        db.create_all()
+        _startup_migrations()
+    except Exception as e:
+        app.logger.warning(f"startup schema init skipped: {e}")
+
 # Routes
 @app.route('/')
 def index():
     try:
-        active_scripts = Script.query.filter_by(status='active').all()
-        return render_template('index.html', scripts=active_scripts)
+        # Spot-check DB health; any query will do.
+        Script.query.limit(1).all()
     except Exception as e:
         app.logger.error(f"Error accessing database: {str(e)}")
-        # If there's a database error, redirect to setup
         flash('Database not initialized. Please set up the application first.')
         return redirect(url_for('setup'))
+    return redirect(url_for('workbench'))
 
 # Authentication routes
 @app.route('/login', methods=['GET', 'POST'])
@@ -276,29 +502,11 @@ def edit_script(script_id):
     return render_template('admin/edit_script.html', script=script)
 
 @app.route('/admin/scripts/<int:script_id>/template', methods=['GET', 'POST'])
-@login_required
+@maybe_login_required
 def edit_template(script_id):
-    script = Script.query.get_or_404(script_id)
-    
-    # Check if user owns the script or is admin
-    if not current_user.is_admin and script.creator_id != current_user.id:
-        flash('Access denied: You can only edit your own scripts')
-        return redirect(url_for('index'))
-    
-    template = script.template
-    
-    if request.method == 'POST':
-        template_content = request.form.get('content')
-        output_format = request.form.get('output_format')
-        
-        template.version += 1
-        template.content = template_content
-        template.output_format = output_format
-        
-        db.session.commit()
-        flash('Template updated successfully')
-        return redirect(url_for('edit_template', script_id=script_id))
-    
+    return redirect(url_for('workbench', script_id=script_id, tab='template'), code=301)
+
+def _unused_edit_template_old():
     jinja_snippets = [
         {
             'name': 'If Condition',
@@ -325,16 +533,9 @@ def edit_template(script_id):
     return render_template('admin/edit_template.html', script=script, template=template, jinja_snippets=jinja_snippets)
 
 @app.route('/scripts/<int:script_id>/fields', methods=['GET'])
-@login_required
+@maybe_login_required
 def manage_fields(script_id):
-    script = Script.query.get_or_404(script_id)
-    
-    # Check if user owns the script or is admin
-    if not current_user.is_admin and script.creator_id != current_user.id:
-        flash('Access denied: You can only edit your own scripts')
-        return redirect(url_for('index'))
-    
-    return render_template('admin/manage_fields.html', script=script)
+    return redirect(url_for('workbench', script_id=script_id, tab='fields'), code=301)
 
 @app.route('/scripts/<int:script_id>/fields/add', methods=['GET', 'POST'])
 @login_required
@@ -1074,6 +1275,7 @@ def auth_config():
     form = AuthConfigForm(obj=config)
     
     if form.validate_on_submit():
+        config.auth_enabled = bool(form.auth_enabled.data)
         config.auth_type = form.auth_type.data
         config.tacacs_server = form.tacacs_server.data
         config.tacacs_port = int(form.tacacs_port.data)
@@ -1120,18 +1322,19 @@ def test_tacacs():
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/admin/dashboard')
-@login_required
+@maybe_login_required
 def admin_dashboard():
-    if not current_user.is_admin:
-        flash('You do not have permission to access this page.')
-        return redirect(url_for('index'))
-    
-    # Add user stats to the dashboard
+    # Legacy entry point — forwards to the unified workbench.
+    return redirect(url_for('workbench'), code=301)
+
+def _unused_admin_dashboard_old():
+    # Kept only so the original template rendering code below doesn't need to be deleted
+    # piecemeal — it's unreachable. Safe to remove wholesale in a future cleanup pass.
     user_count = User.query.count()
     active_users = User.query.filter_by(is_active=True).count()
     admin_users = User.query.filter_by(is_admin=True).count()
     tacacs_users = User.query.filter_by(auth_type='tacacs').count()
-    
+
     # Get existing stats
     script_count = Script.query.count()
     submission_count = FormSubmission.query.count()
@@ -1178,6 +1381,7 @@ class AuthConfigForm(FlaskForm):
     class Meta:
         csrf = False  # Disable CSRF for this form
     
+    auth_enabled = BooleanField('Require login', default=True)
     auth_type = SelectField('Default Authentication Method', choices=[
         ('local', 'Local Authentication'),
         ('tacacs', 'TACACS+ Authentication')
@@ -1223,10 +1427,10 @@ def delete_script(script_id):
 
 # User script management routes
 @app.route('/my-scripts')
-@login_required
+@maybe_login_required
 def my_scripts():
-    scripts = Script.query.filter_by(creator_id=current_user.id).all()
-    return render_template('user/manage_scripts.html', scripts=scripts)
+    # Legacy entry point — forwards to the unified workbench.
+    return redirect(url_for('workbench'), code=301)
 
 @app.route('/my-scripts/new', methods=['GET', 'POST'])
 @login_required
@@ -1432,6 +1636,598 @@ def get_script_submissions(script_id):
     } for sub in submissions]
     
     return jsonify({'submissions': submission_list})
+
+# ---------------------------------------------------------------------------
+# Unified /workbench single pane
+# ---------------------------------------------------------------------------
+# One page, four tabs in the right pane, swapped in-place via HTMX.
+# Old URLs continue to work; this page supersedes /admin/dashboard and /my-scripts.
+
+def _visible_scripts():
+    if is_auth_enabled() and not current_user.is_admin:
+        return Script.query.filter(
+            (Script.creator_id == current_user.id) | (Script.status == 'active')
+        ).order_by(Script.modified_at.desc()).all()
+    return Script.query.order_by(Script.modified_at.desc()).all()
+
+def _guard_edit(script):
+    if not can_edit(current_user, script):
+        flash('You do not have permission to edit this script.')
+        return redirect(url_for('workbench', script_id=script.id))
+    return None
+
+@app.route('/workbench', methods=['GET'])
+@app.route('/workbench/<int:script_id>', methods=['GET'])
+@maybe_login_required
+def workbench(script_id=None):
+    scripts = _visible_scripts()
+    selected = Script.query.get(script_id) if script_id else None
+    tab = request.args.get('tab', 'details')
+    return render_template(
+        'workbench.html',
+        scripts=scripts,
+        selected=selected,
+        tab=tab,
+    )
+
+@app.route('/workbench/new', methods=['POST'])
+@maybe_login_required
+def workbench_new():
+    name = (request.form.get('name') or 'Untitled Script').strip()
+    script = Script(
+        name=name,
+        description='',
+        category='',
+        tags='',
+        creator_id=current_user.id if current_user.is_authenticated else None,
+        status='draft',
+    )
+    db.session.add(script)
+    db.session.commit()
+    db.session.add(Template(script_id=script.id, content='', version=1))
+    db.session.commit()
+    return redirect(url_for('workbench', script_id=script.id, tab='template'))
+
+@app.route('/workbench/<int:script_id>/delete', methods=['POST'])
+@maybe_login_required
+def workbench_delete(script_id):
+    script = Script.query.get_or_404(script_id)
+    guard = _guard_edit(script)
+    if guard:
+        return guard
+    db.session.delete(script)
+    db.session.commit()
+    flash(f'Deleted "{script.name}".')
+    return redirect(url_for('workbench'))
+
+@app.route('/workbench/<int:script_id>/details', methods=['POST'])
+@maybe_login_required
+def workbench_save_details(script_id):
+    script = Script.query.get_or_404(script_id)
+    guard = _guard_edit(script)
+    if guard:
+        return guard
+
+    tracked = [
+        ('name',                 request.form.get('name', script.name)),
+        ('status',               request.form.get('status', script.status)),
+        ('description',          request.form.get('description', script.description) or ''),
+        ('category',             request.form.get('category', script.category) or ''),
+        ('tags',                 request.form.get('tags', script.tags) or ''),
+        ('script_instructions',  request.form.get('script_instructions', script.script_instructions) or ''),
+    ]
+    for field, new_val in tracked:
+        old_val = getattr(script, field) or ''
+        if (old_val or '') != (new_val or ''):
+            _log_change(
+                script_id, 'script_edit', field_name=field,
+                old=old_val, new=new_val,
+                description=f'Changed {field}',
+            )
+            setattr(script, field, new_val)
+    db.session.commit()
+    return redirect(url_for('workbench', script_id=script.id, tab='details'))
+
+@app.route('/workbench/<int:script_id>/template', methods=['POST'])
+@maybe_login_required
+def workbench_save_template(script_id):
+    script = Script.query.get_or_404(script_id)
+    guard = _guard_edit(script)
+    if guard:
+        return guard
+    if script.template is None:
+        db.session.add(Template(script_id=script.id, content='', version=1))
+        db.session.commit()
+
+    new_content = request.form.get('content', '')
+    new_format  = request.form.get('output_format', script.template.output_format)
+    skip_var_check = bool(request.form.get('skip_var_check'))
+
+    # Syntax + undefined-variable validation
+    from jinja2 import Environment, TemplateSyntaxError, meta
+    env = Environment()
+    try:
+        parsed = env.parse(new_content)
+    except TemplateSyntaxError as e:
+        flash(f'Template syntax error at line {e.lineno}: {e.message}')
+        return redirect(url_for('workbench', script_id=script.id, tab='template'))
+
+    if not skip_var_check:
+        tmpl_vars = meta.find_undeclared_variables(parsed)
+        field_names = {f.name for f in script.form_fields}
+        missing = sorted(tmpl_vars - field_names)
+        if missing:
+            flash(
+                'Template references undefined variables: '
+                + ', '.join(missing)
+                + '. Add matching fields on the Fields tab, or use "Detect variables".'
+            )
+            return redirect(url_for('workbench', script_id=script.id, tab='template'))
+
+    old_content = script.template.content
+    old_format  = script.template.output_format
+    changed = False
+    if old_content != new_content:
+        _log_change(script_id, 'template_edit', field_name='content',
+                    old=old_content, new=new_content, description='Updated template content')
+        script.template.content = new_content
+        script.template.version = (script.template.version or 1) + 1
+        changed = True
+    if old_format != new_format:
+        _log_change(script_id, 'template_edit', field_name='output_format',
+                    old=old_format, new=new_format,
+                    description=f'Changed output format from "{old_format}" to "{new_format}"')
+        script.template.output_format = new_format
+        changed = True
+    if changed:
+        db.session.commit()
+        flash('Template saved.')
+    return redirect(url_for('workbench', script_id=script.id, tab='template'))
+
+@app.route('/workbench/<int:script_id>/run', methods=['POST'])
+@maybe_login_required
+def workbench_run(script_id):
+    script = Script.query.get_or_404(script_id)
+    form_fields = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order).all()
+    form_data = {f.name: request.form.get(f.name, '') for f in form_fields}
+    try:
+        tmpl = jinja2.Template(script.template.content if script.template else '')
+        output = tmpl.render(**form_data)
+    except Exception as e:
+        output = f"[Template error] {e}"
+    header = ['#' * 50, f'### Script - {script.name}']
+    for f in form_fields:
+        v = form_data.get(f.name, '')
+        if len(v) > 50:
+            v = v[:47] + '...'
+        header.append(f'# {f.label} - {v}')
+    header += ['#' * 50, '']
+    full_output = '\n'.join(header) + output
+    uid = current_user.id if current_user.is_authenticated else None
+    submission = FormSubmission(
+        script_id=script_id,
+        user_id=uid,
+        field_values=json.dumps(form_data),
+        output=full_output,
+    )
+    db.session.add(submission)
+    # Also write to the user-facing library.
+    name_bits = [v[:20] for v in (form_data.get(f.name, '') for f in form_fields[:2]) if v]
+    gname = f"{script.name} — " + (' '.join(name_bits) if name_bits
+                                    else datetime.utcnow().strftime('%Y-%m-%d %H:%M'))
+    generated = GeneratedScript(
+        original_script_id=script_id,
+        user_id=uid,
+        name=gname[:200],
+        generated_content=full_output,
+        csv_row_data=json.dumps(form_data),
+    )
+    db.session.add(generated)
+    db.session.commit()
+    return render_template(
+        'partials/run_output.html',
+        script=script,
+        output=full_output,
+        submission_id=submission.id,
+        output_id=generated.id,
+    )
+
+@app.route('/workbench/<int:script_id>/fields/add', methods=['POST'])
+@maybe_login_required
+def workbench_add_field(script_id):
+    script = Script.query.get_or_404(script_id)
+    guard = _guard_edit(script)
+    if guard:
+        return guard
+    name = (request.form.get('name') or '').strip()
+    label = (request.form.get('label') or name).strip()
+    field_type = request.form.get('field_type') or 'text'
+    if not name:
+        flash('Variable name is required.')
+        return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+    # +10 spacing so manual reordering can insert between
+    last = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order.desc()).first()
+    order = (last.display_order + 10) if last else 10
+    field = FormField(
+        script_id=script_id,
+        name=name,
+        label=label,
+        field_type=field_type,
+        required=bool(request.form.get('required')),
+        default_value=request.form.get('default_value') or None,
+        help_text=request.form.get('help_text') or None,
+        display_order=order,
+    )
+    db.session.add(field)
+    _log_change(script_id, 'field_add', field_name=name,
+                new=f'{label} ({field_type})',
+                description=f'Added field "{name}"')
+    db.session.commit()
+    return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+
+@app.route('/workbench/<int:script_id>/fields/<int:field_id>/delete', methods=['POST'])
+@maybe_login_required
+def workbench_delete_field(script_id, field_id):
+    script = Script.query.get_or_404(script_id)
+    guard = _guard_edit(script)
+    if guard:
+        return guard
+    field = FormField.query.get_or_404(field_id)
+    if field.script_id != script_id:
+        flash('Invalid field.')
+        return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+    _log_change(script_id, 'field_delete', field_name=field.name,
+                old=f'{field.label} ({field.field_type})',
+                description=f'Deleted field "{field.name}"')
+    db.session.delete(field)
+    db.session.commit()
+    return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+
+# ---------------------------------------------------------------------------
+# Template-authoring APIs (JSON) + downloads
+# ---------------------------------------------------------------------------
+@app.route('/workbench/<int:script_id>/api/detect_variables', methods=['POST'])
+@maybe_login_required
+def wb_detect_variables(script_id):
+    script = Script.query.get_or_404(script_id)
+    if not can_edit(current_user, script):
+        return jsonify({'error': 'forbidden'}), 403
+    data = request.get_json(silent=True) or {}
+    content = data.get('template_content', '')
+    found = _detect_template_variables(content)
+    existing = {f.name for f in script.form_fields}
+    return jsonify({
+        'variables': sorted(found),
+        'existing':  sorted(found & existing),
+        'missing':   sorted(found - existing),
+    })
+
+@app.route('/workbench/<int:script_id>/api/validate_template', methods=['POST'])
+@maybe_login_required
+def wb_validate_template(script_id):
+    script = Script.query.get_or_404(script_id)
+    if not can_edit(current_user, script):
+        return jsonify({'error': 'forbidden'}), 403
+    data = request.get_json(silent=True) or {}
+    content = data.get('template_content', '')
+    from jinja2 import Environment, TemplateSyntaxError
+    try:
+        Environment().parse(content)
+        return jsonify({'valid': True, 'message': 'Template syntax is valid.'})
+    except TemplateSyntaxError as e:
+        return jsonify({
+            'valid': False,
+            'line':  e.lineno,
+            'error': e.message,
+            'message': f'Syntax error at line {e.lineno}: {e.message}',
+        })
+
+@app.route('/workbench/<int:script_id>/api/add_variable_field', methods=['POST'])
+@maybe_login_required
+def wb_add_variable_field(script_id):
+    script = Script.query.get_or_404(script_id)
+    if not can_edit(current_user, script):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    data = request.get_json(silent=True) or {}
+    varname = (data.get('variable_name') or '').strip()
+    if not varname:
+        return jsonify({'success': False, 'error': 'missing variable_name'}), 400
+    if FormField.query.filter_by(script_id=script_id, name=varname).first():
+        return jsonify({'success': False, 'error': f'Field "{varname}" already exists'}), 409
+    last = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order.desc()).first()
+    order = (last.display_order + 10) if last else 10
+    label = varname.replace('_', ' ').title()
+    field = FormField(
+        script_id=script_id,
+        name=varname,
+        label=label,
+        field_type='text',
+        required=False,
+        display_order=order,
+    )
+    db.session.add(field)
+    _log_change(script_id, 'field_add', field_name=varname,
+                new=f'{label} (text)',
+                description=f'Auto-added field from template variable "{varname}"')
+    db.session.commit()
+    return jsonify({'success': True, 'field_id': field.id, 'name': varname, 'label': label})
+
+@app.route('/workbench/<int:script_id>/api/fields/reorder', methods=['POST'])
+@maybe_login_required
+def wb_reorder_fields(script_id):
+    script = Script.query.get_or_404(script_id)
+    if not can_edit(current_user, script):
+        return jsonify({'success': False, 'error': 'forbidden'}), 403
+    data = request.get_json(silent=True) or {}
+    order = data.get('fields') or []
+    for idx, item in enumerate(order):
+        fid = item.get('id')
+        if not fid:
+            continue
+        field = FormField.query.filter_by(id=fid, script_id=script_id).first()
+        if field:
+            field.display_order = (idx + 1) * 10
+    db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/workbench/<int:script_id>/export-template')
+@maybe_login_required
+def wb_export_template(script_id):
+    script = Script.query.get_or_404(script_id)
+    if script.template is None:
+        flash('No template to export.')
+        return redirect(url_for('workbench', script_id=script_id, tab='template'))
+    lines = []
+    if script.form_fields:
+        lines.append('# Template Variables')
+        lines.append('# =================')
+        for f in sorted(script.form_fields, key=lambda x: x.display_order):
+            lines.append(f'# {f.name} — {{{{ {f.name} }}}}')
+        lines.append('')
+    body = '\n'.join(lines) + (script.template.content or '')
+    resp = make_response(body)
+    resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    safe = re.sub(r'[^A-Za-z0-9._-]+', '_', script.name) or f'script_{script_id}'
+    resp.headers['Content-Disposition'] = f'attachment; filename="{safe}_template.txt"'
+    return resp
+
+@app.route('/workbench/<int:script_id>/csv-template')
+@maybe_login_required
+def wb_csv_template(script_id):
+    script = Script.query.get_or_404(script_id)
+    fields = sorted(script.form_fields, key=lambda f: f.display_order)
+    if not fields:
+        flash('Add at least one field before downloading a CSV template.')
+        return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+    buf = io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow([f.name for f in fields])
+    w.writerow([f'{f.label} ({f.field_type})' for f in fields])
+    safe = re.sub(r'[^A-Za-z0-9._-]+', '_', script.name) or f'script_{script_id}'
+    resp = make_response(buf.getvalue())
+    resp.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    resp.headers['Content-Disposition'] = f'attachment; filename="{safe}_template.csv"'
+    return resp
+
+# ---------------------------------------------------------------------------
+# History tab
+# ---------------------------------------------------------------------------
+@app.route('/workbench/<int:script_id>/history-partial')
+@maybe_login_required
+def wb_history_partial(script_id):
+    """Returns a rendered history list — used inline inside the workbench history tab."""
+    script = Script.query.get_or_404(script_id)
+    page       = request.args.get('page', 1, type=int)
+    per_page   = max(5, min(100, request.args.get('per_page', 20, type=int)))
+    search     = (request.args.get('search') or '').strip()
+    type_f     = (request.args.get('type') or '').strip()
+
+    q = ScriptChange.query.filter_by(script_id=script_id)
+    if search:
+        pat = f'%{search}%'
+        q = q.filter(db.or_(
+            ScriptChange.description.ilike(pat),
+            ScriptChange.field_name.ilike(pat),
+            ScriptChange.old_value.ilike(pat),
+            ScriptChange.new_value.ilike(pat),
+        ))
+    if type_f:
+        q = q.filter(ScriptChange.change_type == type_f)
+
+    pagination = q.order_by(ScriptChange.change_date.desc()).paginate(
+        page=page, per_page=per_page, error_out=False)
+    changes = pagination.items
+    for ch in changes:
+        ch.diff = None
+        if ch.change_type == 'template_edit' and ch.field_name == 'content':
+            ch.diff = generate_diff(ch.old_value or '', ch.new_value or '')
+
+    change_types = sorted({
+        t for (t,) in db.session.query(ScriptChange.change_type)
+                       .filter_by(script_id=script_id).distinct().all()
+    })
+    return render_template(
+        'partials/history.html',
+        script=script,
+        changes=changes,
+        pagination=pagination,
+        search=search,
+        type_filter=type_f,
+        change_types=change_types,
+        per_page=per_page,
+        CHANGE_TYPE_LABELS=CHANGE_TYPE_LABELS,
+    )
+
+# ---------------------------------------------------------------------------
+# CSV bulk generation + Outputs library (GeneratedScript)
+# ---------------------------------------------------------------------------
+@app.route('/workbench/<int:script_id>/bulk-generate', methods=['POST'])
+@maybe_login_required
+def wb_bulk_generate(script_id):
+    script = Script.query.get_or_404(script_id)
+    if 'csv_file' not in request.files:
+        flash('No CSV file uploaded.')
+        return redirect(url_for('workbench', script_id=script_id, tab='run'))
+    file = request.files['csv_file']
+    if not file.filename:
+        flash('No file selected.')
+        return redirect(url_for('workbench', script_id=script_id, tab='run'))
+    if not file.filename.lower().endswith('.csv'):
+        flash('Please upload a .csv file.')
+        return redirect(url_for('workbench', script_id=script_id, tab='run'))
+
+    fields = sorted(script.form_fields, key=lambda f: f.display_order)
+    if not fields:
+        flash('Add form fields before bulk-generating.')
+        return redirect(url_for('workbench', script_id=script_id, tab='fields'))
+
+    try:
+        content = file.read().decode('utf-8-sig')
+    except UnicodeDecodeError:
+        flash('CSV must be UTF-8 encoded.')
+        return redirect(url_for('workbench', script_id=script_id, tab='run'))
+
+    reader = _csv.DictReader(content.splitlines())
+    headers = reader.fieldnames or []
+    expected = [f.name for f in fields]
+    missing = set(expected) - set(headers)
+    if missing:
+        flash(f'CSV is missing required columns: {", ".join(sorted(missing))}')
+        return redirect(url_for('workbench', script_id=script_id, tab='run'))
+
+    batch_id = uuid.uuid4().hex[:8]
+    from jinja2 import Environment
+    env = Environment()
+    created = 0
+    errors = 0
+    uid = current_user.id if current_user.is_authenticated else None
+    for row_num, row in enumerate(reader, start=2):
+        if not any((row or {}).values()):
+            continue
+        form_data = {f.name: (row.get(f.name) or '').strip() for f in fields}
+        try:
+            rendered = env.from_string(script.template.content or '').render(**form_data)
+        except Exception as e:
+            app.logger.error(f'bulk row {row_num} error: {e}')
+            errors += 1
+            continue
+        name_bits = [form_data[f.name][:20] for f in fields[:3] if form_data.get(f.name)]
+        name = f"{script.name} — " + (' '.join(name_bits) if name_bits else f'Row {row_num}')
+        db.session.add(GeneratedScript(
+            original_script_id=script_id,
+            user_id=uid,
+            name=name[:200],
+            generated_content=rendered,
+            csv_row_data=json.dumps(form_data),
+            batch_id=batch_id,
+        ))
+        created += 1
+    if created:
+        db.session.commit()
+        flash(f'Generated {created} script{"s" if created != 1 else ""}.'
+              + (f' {errors} row(s) failed.' if errors else ''))
+        return redirect(url_for('outputs_list', batch=batch_id))
+    flash('No scripts were generated. Check your CSV.')
+    return redirect(url_for('workbench', script_id=script_id, tab='run'))
+
+@app.route('/outputs')
+@maybe_login_required
+def outputs_list():
+    page       = request.args.get('page', 1, type=int)
+    per_page   = max(5, min(100, request.args.get('per_page', 25, type=int)))
+    sort_by    = request.args.get('sort', 'created_at')
+    order      = request.args.get('order', 'desc')
+    search     = (request.args.get('search') or '').strip()
+    batch      = (request.args.get('batch') or '').strip()
+    script_id  = request.args.get('script_id', type=int)
+
+    q = GeneratedScript.query
+    if is_auth_enabled() and not (current_user.is_authenticated and current_user.is_admin):
+        q = q.filter(GeneratedScript.user_id == current_user.id)
+    if search:
+        pat = f'%{search}%'
+        q = q.filter(GeneratedScript.name.ilike(pat))
+    if batch:
+        q = q.filter(GeneratedScript.batch_id == batch)
+    if script_id:
+        q = q.filter(GeneratedScript.original_script_id == script_id)
+
+    columns = {
+        'name':        GeneratedScript.name,
+        'batch':       GeneratedScript.batch_id,
+        'created_at':  GeneratedScript.created_at,
+        'modified_at': GeneratedScript.modified_at,
+    }
+    col = columns.get(sort_by, GeneratedScript.created_at)
+    q = q.order_by(col.desc() if order == 'desc' else col.asc())
+
+    pagination = q.paginate(page=page, per_page=per_page, error_out=False)
+    return render_template(
+        'outputs.html',
+        outputs=pagination.items,
+        pagination=pagination,
+        search=search,
+        batch=batch,
+        per_page=per_page,
+        current_sort=sort_by,
+        current_order=order,
+    )
+
+def _owned_output_or_404(output_id):
+    out = GeneratedScript.query.get_or_404(output_id)
+    if is_auth_enabled() and not (current_user.is_authenticated and current_user.is_admin):
+        uid = current_user.id if current_user.is_authenticated else None
+        if out.user_id != uid:
+            flash('Not found.')
+            return None
+    return out
+
+@app.route('/outputs/<int:output_id>')
+@maybe_login_required
+def outputs_view(output_id):
+    out = _owned_output_or_404(output_id)
+    if out is None:
+        return redirect(url_for('outputs_list'))
+    return render_template('output_view.html', output=out)
+
+@app.route('/outputs/<int:output_id>/edit', methods=['GET', 'POST'])
+@maybe_login_required
+def outputs_edit(output_id):
+    out = _owned_output_or_404(output_id)
+    if out is None:
+        return redirect(url_for('outputs_list'))
+    if request.method == 'POST':
+        out.name = (request.form.get('name') or out.name).strip()
+        out.generated_content = request.form.get('content', out.generated_content)
+        out.modified_at = datetime.utcnow()
+        db.session.commit()
+        flash('Output saved.')
+        return redirect(url_for('outputs_view', output_id=out.id))
+    return render_template('output_edit.html', output=out)
+
+@app.route('/outputs/<int:output_id>/download')
+@maybe_login_required
+def outputs_download(output_id):
+    out = _owned_output_or_404(output_id)
+    if out is None:
+        return redirect(url_for('outputs_list'))
+    safe = re.sub(r'[^A-Za-z0-9._-]+', '_', out.name) or f'output_{output_id}'
+    resp = make_response(out.generated_content)
+    resp.headers['Content-Type'] = 'text/plain; charset=utf-8'
+    resp.headers['Content-Disposition'] = f'attachment; filename="{safe}.txt"'
+    return resp
+
+@app.route('/outputs/<int:output_id>/delete', methods=['POST'])
+@maybe_login_required
+def outputs_delete(output_id):
+    out = _owned_output_or_404(output_id)
+    if out is None:
+        return redirect(url_for('outputs_list'))
+    name = out.name
+    db.session.delete(out)
+    db.session.commit()
+    flash(f'Deleted "{name}".')
+    return redirect(url_for('outputs_list'))
 
 if __name__ == '__main__':
     app.run(debug=True, port=5500)

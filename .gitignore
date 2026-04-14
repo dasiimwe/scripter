@@ -170,3 +170,7 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Vendored frontend assets (fetched by scripts/fetch_vendor.py on install)
+static/vendor/
+static/fonts/

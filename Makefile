@@ -3,15 +3,16 @@ VENV   ?= .venv
 BIN     = $(VENV)/bin
 PORT   ?= 5500
 
-.PHONY: help venv install run migrate clean reset-db freeze prod
+.PHONY: help venv install assets run migrate clean reset-db freeze prod
 
 help:
 	@echo "Targets:"
-	@echo "  make install   - create venv and install requirements"
+	@echo "  make install   - create venv, install requirements, fetch vendor assets"
+	@echo "  make assets    - fetch/refresh vendored JS/CSS/fonts into static/vendor"
 	@echo "  make run       - run the Flask dev server on port $(PORT)"
 	@echo "  make migrate   - run migrate_db.py against the SQLite DB"
 	@echo "  make reset-db  - delete instance/scripter.db (DESTRUCTIVE)"
-	@echo "  make prod      - TODO: run via production server"
+	@echo "  make prod      - run via waitress (requires SECRET_KEY env var)"
 	@echo "  make clean     - remove __pycache__ and .pyc files"
 	@echo "  make freeze    - pip freeze > requirements.lock.txt"
 
@@ -21,8 +22,11 @@ $(VENV)/bin/activate:
 
 venv: $(VENV)/bin/activate
 
-install: venv
+install: venv assets
 	$(BIN)/pip install -r requirements.txt
+
+assets:
+	$(PYTHON) scripts/fetch_vendor.py
 
 run: install
 	FLASK_APP=app.py $(BIN)/python app.py

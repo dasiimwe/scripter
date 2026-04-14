@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% if selected %}{{ selected.name }} · {% endif %}Scripter</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/workbench.css') }}">
+  <script>
+    // Apply stored theme before paint to prevent flash of unstyled theme.
+    (function () {
+      try {
+        var t = localStorage.getItem('scripter.theme');
+        if (t === 'operator' || t === 'datasheet') {
+          document.documentElement.setAttribute('data-theme', t);
+        }
+      } catch (e) { /* localStorage unavailable — default theme wins */ }
+    })();
+  </script>
+  <script src="{{ url_for('static', filename='vendor/htmx/htmx.min.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/theme.js') }}" defer></script>
+</head>
+<body>
+
+<header class="top">
+  <div class="mark"><span class="dot"></span>Scripter</div>
+  <div class="mode">
+    Mode —
+    {% if auth_enabled %}<b>Authenticated</b>{% else %}<b>Open</b>{% endif %}
+    {% if current_user.is_authenticated and auth_enabled %}· {{ current_user.username }}{% endif %}
+  </div>
+  {% include 'partials/theme_selector.html' %}
+  <nav>
+    {% if can_admin(current_user) %}
+      <a href="{{ url_for('admin_users') }}">Users</a>
+      <a href="{{ url_for('auth_config') }}">Auth</a>
+    {% endif %}
+    {% if auth_enabled and current_user.is_authenticated %}
+      <a href="{{ url_for('logout') }}">Sign out</a>
+    {% elif auth_enabled %}
+      <a href="{{ url_for('login') }}">Sign in</a>
+    {% endif %}
+  </nav>
+</header>
+
+{% with messages = get_flashed_messages() %}
+  {% for message in messages %}
+    <div class="flash">— {{ message }}</div>
+  {% endfor %}
+{% endwith %}
+
+<div class="shell">
+
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="label">Scripts · {{ scripts|length }}</div>
+      {% set user_can_create = (not auth_enabled) or (current_user.is_authenticated) %}
+      {% if user_can_create %}
+      <form method="post" action="{{ url_for('workbench_new') }}" class="new-form">
+        <input name="name" placeholder="New script name…" required>
+        <button type="submit" title="Create">New</button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if scripts %}
+      <ul class="list">
+        {% for s in scripts %}
+          <li class="{% if selected and selected.id == s.id %}sel{% endif %}">
+            <a href="{{ url_for('workbench', script_id=s.id) }}">
+              <div class="name">{{ s.name }}</div>
+              <div class="meta">
+                {{ s.category or 'uncategorized' }}
+                · <span class="status-{{ s.status }}">{{ s.status }}</span>
+              </div>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <div class="list"><div class="empty">No scripts yet.</div></div>
+    {% endif %}
+  </aside>
+
+  <section class="pane">
+    {% if not selected %}
+      <div class="pane-empty">
+        <h2>Pick a script, or write a new one.</h2>
+        <p>Scripter turns Jinja templates into device configurations. Select a script on the left to view, run, or edit it — or start a new one.</p>
+      </div>
+    {% else %}
+      {% set editable = can_edit(current_user, selected) %}
+      <header class="pane-head">
+        <h1>
+          <span>{{ selected.name }}</span>
+          <span class="num">№ {{ '%04d' % selected.id }}</span>
+        </h1>
+        {% if selected.description %}
+          <p class="subtitle">{{ selected.description }}</p>
+        {% endif %}
+
+        <nav class="tabs">
+          <a class="tab {% if tab=='details' %}active{% endif %}"  href="{{ url_for('workbench', script_id=selected.id, tab='details') }}">Details</a>
+          <a class="tab {% if tab=='fields' %}active{% endif %}"   href="{{ url_for('workbench', script_id=selected.id, tab='fields') }}">Fields</a>
+          <a class="tab {% if tab=='template' %}active{% endif %}" href="{{ url_for('workbench', script_id=selected.id, tab='template') }}">Template</a>
+          <a class="tab {% if tab=='run' %}active{% endif %}"      href="{{ url_for('workbench', script_id=selected.id, tab='run') }}">Run</a>
+        </nav>
+      </header>
+
+      <div class="pane-body">
+
+      {# ---------------- DETAILS ---------------- #}
+      {% if tab == 'details' %}
+        {% if editable %}
+          <form method="post" action="{{ url_for('workbench_save_details', script_id=selected.id) }}">
+            <div class="field-row">
+              <div class="field">
+                <label>Name</label>
+                <input type="text" name="name" value="{{ selected.name }}" required>
+              </div>
+              <div class="field">
+                <label>Status</label>
+                <select name="status">
+                  <option value="draft"    {% if selected.status=='draft' %}selected{% endif %}>Draft</option>
+                  <option value="active"   {% if selected.status=='active' %}selected{% endif %}>Active</option>
+                  <option value="archived" {% if selected.status=='archived' %}selected{% endif %}>Archived</option>
+                </select>
+              </div>
+            </div>
+            <div class="field">
+              <label>Description</label>
+              <textarea name="description">{{ selected.description or '' }}</textarea>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>Category</label>
+                <input type="text" name="category" value="{{ selected.category or '' }}">
+              </div>
+              <div class="field">
+                <label>Tags</label>
+                <input type="text" name="tags" value="{{ selected.tags or '' }}">
+                <div class="hint">Comma-separated.</div>
+              </div>
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn">Save details</button>
+              <form method="post" action="{{ url_for('workbench_delete', script_id=selected.id) }}"
+                    onsubmit="return confirm('Delete this script and all its fields + submissions? This cannot be undone.');"
+                    style="display:inline">
+                <button type="submit" class="btn btn-danger">Delete script</button>
+              </form>
+            </div>
+          </form>
+        {% else %}
+          <p class="readonly-note">You have read-only access to this script.</p>
+          <dl class="kv">
+            <dt>Status</dt>      <dd><span class="mono">{{ selected.status }}</span></dd>
+            <dt>Category</dt>    <dd>{{ selected.category or '—' }}</dd>
+            <dt>Tags</dt>        <dd>{{ selected.tags or '—' }}</dd>
+            <dt>Created</dt>     <dd><span class="mono">{{ selected.created_at.strftime('%Y-%m-%d %H:%M') }}</span></dd>
+            <dt>Modified</dt>    <dd><span class="mono">{{ selected.modified_at.strftime('%Y-%m-%d %H:%M') }}</span></dd>
+          </dl>
+        {% endif %}
+
+      {# ---------------- FIELDS ----------------- #}
+      {% elif tab == 'fields' %}
+        {% set fields = selected.form_fields|sort(attribute='display_order') %}
+        <div class="section-rule">Form fields · {{ fields|length }}</div>
+        {% if fields %}
+          <table class="grid">
+            <thead><tr>
+              <th style="width:25%">Variable</th>
+              <th style="width:35%">Label</th>
+              <th style="width:15%">Type</th>
+              <th style="width:15%">Required</th>
+              <th style="width:10%"></th>
+            </tr></thead>
+            <tbody>
+              {% for f in fields %}
+              <tr>
+                <td class="name">{{ f.name }}</td>
+                <td>{{ f.label }}</td>
+                <td class="type">{{ f.field_type }}</td>
+                <td>{% if f.required %}yes{% else %}—{% endif %}</td>
+                <td>
+                  {% if editable %}
+                  <form method="post" class="inline-delete"
+                        action="{{ url_for('workbench_delete_field', script_id=selected.id, field_id=f.id) }}"
+                        onsubmit="return confirm('Delete field {{ f.name }}?');">
+                    <button type="submit">Delete</button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="readonly-note">No fields defined yet. Fields become inputs on the Run tab.</p>
+        {% endif %}
+
+        {% if editable %}
+          <div class="section-rule">Add a field</div>
+          <form method="post" action="{{ url_for('workbench_add_field', script_id=selected.id) }}">
+            <div class="field-row">
+              <div class="field">
+                <label>Variable name</label>
+                <input type="text" name="name" required placeholder="hostname">
+                <div class="hint">Must match a <code>{% raw %}{{ variable }}{% endraw %}</code> in your template.</div>
+              </div>
+              <div class="field">
+                <label>Display label</label>
+                <input type="text" name="label" placeholder="Hostname">
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label>Type</label>
+                <select name="field_type">
+                  <option value="text">Text</option>
+                  <option value="textarea">Textarea</option>
+                  <option value="number">Number</option>
+                  <option value="select">Select</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Default value</label>
+                <input type="text" name="default_value">
+              </div>
+            </div>
+            <div class="field">
+              <label>Help text</label>
+              <input type="text" name="help_text">
+            </div>
+            <div class="field">
+              <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-family:var(--serif);font-size:14px;color:var(--ink)">
+                <input type="checkbox" name="required"> Required
+              </label>
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn">Add field</button>
+            </div>
+          </form>
+        {% endif %}
+
+      {# ---------------- TEMPLATE --------------- #}
+      {% elif tab == 'template' %}
+        {% if editable %}
+          <form method="post" action="{{ url_for('workbench_save_template', script_id=selected.id) }}">
+            <div class="field">
+              <label>Jinja2 template</label>
+              <textarea name="content" class="code-edit" spellcheck="false">{{ selected.template.content if selected.template else '' }}</textarea>
+              <div class="hint">Use <code>{% raw %}{{ variable }}{% endraw %}</code> for substitution, <code>{% raw %}{% for x in list %}{% endraw %}</code> for loops, <code>{% raw %}{% if cond %}{% endraw %}</code> for conditionals.</div>
+            </div>
+            <div class="field" style="max-width:300px">
+              <label>Output format</label>
+              <select name="output_format">
+                {% set fmt = selected.template.output_format if selected.template else 'Plain Text' %}
+                <option value="Plain Text" {% if fmt=='Plain Text' %}selected{% endif %}>Plain Text</option>
+                <option value="text"       {% if fmt=='text' %}selected{% endif %}>text</option>
+                <option value="html"       {% if fmt=='html' %}selected{% endif %}>html</option>
+                <option value="markdown"   {% if fmt=='markdown' %}selected{% endif %}>markdown</option>
+              </select>
+            </div>
+            <div class="actions">
+              <button type="submit" class="btn">Save template</button>
+            </div>
+          </form>
+        {% else %}
+          <p class="readonly-note">Read-only. Template source is shown below.</p>
+          <pre class="code-edit" style="white-space:pre-wrap">{{ selected.template.content if selected.template else '' }}</pre>
+        {% endif %}
+
+      {# ---------------- RUN -------------------- #}
+      {% elif tab == 'run' %}
+        {% set fields = selected.form_fields|sort(attribute='display_order') %}
+        {% if fields %}
+          <form hx-post="{{ url_for('workbench_run', script_id=selected.id) }}"
+                hx-target="#run-output" hx-swap="innerHTML">
+            {% for f in fields %}
+              <div class="field">
+                <label>{{ f.label }}{% if f.required %} *{% endif %}</label>
+                {% if f.field_type == 'textarea' %}
+                  <textarea name="{{ f.name }}" {% if f.required %}required{% endif %}>{{ f.default_value or '' }}</textarea>
+                {% elif f.field_type == 'number' %}
+                  <input type="number" name="{{ f.name }}" value="{{ f.default_value or '' }}" {% if f.required %}required{% endif %}>
+                {% else %}
+                  <input type="text" name="{{ f.name }}" value="{{ f.default_value or '' }}" {% if f.required %}required{% endif %}>
+                {% endif %}
+                {% if f.help_text %}<div class="hint">{{ f.help_text }}</div>{% endif %}
+              </div>
+            {% endfor %}
+            <div class="actions">
+              <button type="submit" class="btn btn-primary">Generate output</button>
+            </div>
+          </form>
+        {% else %}
+          <p class="readonly-note">This script has no input fields. Add some on the Fields tab, or click below to render with an empty context.</p>
+          <form hx-post="{{ url_for('workbench_run', script_id=selected.id) }}"
+                hx-target="#run-output" hx-swap="innerHTML">
+            <button type="submit" class="btn btn-primary">Render template</button>
+          </form>
+        {% endif %}
+
+        <div id="run-output"></div>
+      {% endif %}
+
+        <div class="colophon">
+          Script №{{ '%04d' % selected.id }} · {{ selected.status }} · modified {{ selected.modified_at.strftime('%Y-%m-%d') }}
+        </div>
+      </div>
+    {% endif %}
+  </section>
+</div>
+
+</body>
+</html>
