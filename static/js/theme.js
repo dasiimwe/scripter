@@ -3,7 +3,7 @@
 (function () {
   const KEY = 'scripter.theme';
   const VALID = new Set(['operator', 'datasheet']);
-  const DEFAULT = 'operator';
+  const DEFAULT = 'datasheet';
 
   function current() {
     const stored = localStorage.getItem(KEY);

@@ -8,27 +8,8 @@
   --serif: "Newsreader", "Iowan Old Style", "Hoefler Text", Georgia, serif;
 }
 
-/* Theme: Operator's Manual — warm bone-white, well-thumbed field manual. */
+/* Theme: Datasheet — cool pure-white, freshly printed reference sheet (default). */
 :root,
-[data-theme="operator"] {
-  --canvas:       #F6F3EC;
-  --canvas-sunk:  #EFEAD8;
-  --canvas-soft:  #FBF8F1;
-  --ink:          #1A1A1A;
-  --ink-mid:      #3D3D3D;
-  --ink-muted:    #6B6B6B;
-  --rule:         #D8D2C4;
-  --rule-strong:  #A9A396;
-  --accent:       #C14A00;
-  --accent-soft:  #F4E1D3;
-  --accent-ink:   #802E00;
-  --danger:       #8B1A1A;
-  --swatch-border: transparent;
-}
-
-/* Theme: Datasheet — cool pure-white, freshly printed reference sheet.
-   Same typographic discipline; slightly cooler rules and ink create productive
-   tension with the hazard-amber accent. */
 [data-theme="datasheet"] {
   --canvas:       #FFFFFF;
   --canvas-sunk:  #F1F3F5;
@@ -43,6 +24,23 @@
   --accent-ink:   #8C3500;
   --danger:       #8B1A1A;
   --swatch-border: #DADEE2;
+}
+
+/* Theme: Operator's Manual — warm bone-white, well-thumbed field manual. */
+[data-theme="operator"] {
+  --canvas:       #F6F3EC;
+  --canvas-sunk:  #EFEAD8;
+  --canvas-soft:  #FBF8F1;
+  --ink:          #1A1A1A;
+  --ink-mid:      #3D3D3D;
+  --ink-muted:    #6B6B6B;
+  --rule:         #D8D2C4;
+  --rule-strong:  #A9A396;
+  --accent:       #C14A00;
+  --accent-soft:  #F4E1D3;
+  --accent-ink:   #802E00;
+  --danger:       #8B1A1A;
+  --swatch-border: transparent;
 }
 
 * { box-sizing: border-box; }
