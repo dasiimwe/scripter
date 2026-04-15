@@ -615,7 +615,54 @@
             <div class="field tmpl-editor-field">
               <label>Jinja2 template</label>
               <textarea name="content" id="tmpl-content" spellcheck="false">{{ selected.template.content if selected.template else '' }}</textarea>
-              <div class="hint">Use <code>{% raw %}{{ variable }}{% endraw %}</code>, <code>{% raw %}{% for x in list %}{% endraw %}</code>, <code>{% raw %}{% if cond %}{% endraw %}</code>. Line numbers, bracket matching, and find (Ctrl/Cmd-F) available. Fields typed <b>IP / CIDR</b> expose helpers — <code>{% raw %}{{ site_ip.first }}{% endraw %}</code>, <code>.network</code>, <code>.netmask</code>, <code>.broadcast</code>, <code>.reverse_pointer</code>, etc.</div>
+              <details class="ip-ref">
+                <summary>IP / CIDR helpers · for fields typed IPv4, IPv6, or CIDR</summary>
+                <div class="ip-ref-intro">
+                  Given a field <code>site_ip</code> typed as IPv4/IPv6/CIDR, any of these attributes work inside
+                  <code>{% raw %}{{ site_ip.<i>attr</i> }}{% endraw %}</code>.
+                  Bare <code>{% raw %}{{ site_ip }}{% endraw %}</code> renders the original input verbatim.
+                </div>
+                <div class="ip-ref-section">Address & subnet</div>
+                <dl class="ip-ref-grid">
+                  <dt>.address</dt>    <dd>Host IP with no mask</dd>
+                  <dt>.network</dt>    <dd>Network address</dd>
+                  <dt>.netmask</dt>    <dd>Dotted-decimal mask (e.g. <code>255.255.255.0</code>)</dd>
+                  <dt>.wildcard</dt>   <dd>Inverse mask — v4 only (e.g. <code>0.0.0.255</code>)</dd>
+                  <dt>.hostmask</dt>   <dd>Alias of <code>.wildcard</code></dd>
+                  <dt>.broadcast</dt>  <dd>Broadcast address — v4 only</dd>
+                  <dt>.cidr</dt>       <dd>Network in <code>addr/prefix</code> form (e.g. <code>192.168.1.0/24</code>)</dd>
+                  <dt>.host_cidr</dt>  <dd>Host in <code>addr/prefix</code> form (e.g. <code>192.168.1.5/24</code>)</dd>
+                  <dt>.prefix</dt>     <dd>Prefix length as integer (e.g. <code>24</code>)</dd>
+                </dl>
+                <div class="ip-ref-section">Usable host range</div>
+                <dl class="ip-ref-grid">
+                  <dt>.first</dt>      <dd>First usable host</dd>
+                  <dt>.last</dt>       <dd>Last usable host</dd>
+                  <dt>.hosts</dt>      <dd>Count of usable hosts (<code>/31</code> → 2, <code>/32</code> → 1)</dd>
+                  <dt>.size</dt>       <dd>Total address count in the subnet</dd>
+                  <dt>.version</dt>    <dd><code>4</code> or <code>6</code></dd>
+                </dl>
+                <div class="ip-ref-section">Classification</div>
+                <dl class="ip-ref-grid">
+                  <dt>.is_private</dt>    <dd>RFC1918 / ULA / other reserved private ranges</dd>
+                  <dt>.is_global</dt>     <dd>Globally routable</dd>
+                  <dt>.is_loopback</dt>   <dd><code>127.0.0.0/8</code> or <code>::1</code></dd>
+                  <dt>.is_multicast</dt>  <dd><code>224.0.0.0/4</code> or <code>ff00::/8</code></dd>
+                  <dt>.is_link_local</dt> <dd><code>169.254.0.0/16</code> or <code>fe80::/10</code></dd>
+                </dl>
+                <div class="ip-ref-section">DNS & canonical forms</div>
+                <dl class="ip-ref-grid">
+                  <dt>.reverse_pointer</dt> <dd>DNS PTR name (<code>1.1.168.192.in-addr.arpa</code>)</dd>
+                  <dt>.exploded</dt>        <dd>Long form — useful for IPv6 logging</dd>
+                  <dt>.compressed</dt>      <dd>Short form — useful for IPv6 config</dd>
+                </dl>
+                <div class="ip-ref-note">
+                  Invalid input renders the raw string verbatim; derived attributes return an empty string rather than raising.
+                </div>
+              </details>
+              <div class="hint" style="margin-top:6px">
+                Line numbers, bracket matching, and find (Ctrl/Cmd-F) are built into the editor.
+              </div>
             </div>
             <div class="field" style="max-width:300px">
               <label>Output format</label>

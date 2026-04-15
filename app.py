@@ -414,6 +414,11 @@ class IPValue:
     @property
     def cidr(self):      return self._safe(lambda: str(self._net))
     @property
+    def host_cidr(self):
+        # Host IP with the network prefix, e.g. '192.168.1.5/24'.
+        # For a bare /32 or /128 this equals .address + '/32' (or '/128').
+        return self._safe(lambda: str(self._iface))
+    @property
     def prefix(self):    return self._safe(lambda: self._net.prefixlen)
 
     # --- usable host range ---

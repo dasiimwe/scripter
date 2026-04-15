@@ -144,6 +144,8 @@ window.JINJA_SNIPPETS = [
     body: '{{ $|$.broadcast }}' },
   { cat: 'IP helpers', name: 'cidr  (network/prefix)',
     body: '{{ $|$.cidr }}' },
+  { cat: 'IP helpers', name: 'host_cidr  (host/prefix)',
+    body: '{{ $|$.host_cidr }}' },
   { cat: 'IP helpers', name: 'prefix  (length as int)',
     body: '{{ $|$.prefix }}' },
   { cat: 'IP helpers', name: 'first  (first usable host)',

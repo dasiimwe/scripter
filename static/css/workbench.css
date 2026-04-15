@@ -907,6 +907,92 @@ table.grid .inline-delete button:hover { color: var(--accent); }
 .pane-body.tmpl-pane .tmpl-editor-field .hint {
   flex: 0 0 auto;
 }
+
+/* IP/CIDR helper reference — collapsible panel under the template editor. */
+.ip-ref {
+  flex: 0 0 auto;
+  margin-top: 10px;
+  border: 1px solid var(--rule);
+  background: var(--canvas-soft);
+  border-left: 3px solid var(--accent);
+}
+.ip-ref > summary {
+  cursor: pointer;
+  padding: 8px 14px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  user-select: none;
+}
+.ip-ref[open] > summary {
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule);
+}
+.ip-ref > summary:hover { color: var(--ink); }
+
+.ip-ref-intro {
+  padding: 12px 16px 6px;
+  font-family: var(--serif);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-mid);
+}
+.ip-ref-intro code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--canvas-sunk);
+  padding: 1px 5px;
+}
+
+.ip-ref-section {
+  padding: 10px 16px 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  border-top: 1px solid var(--rule);
+  margin-top: 2px;
+}
+.ip-ref-section:first-of-type { margin-top: 0; border-top: none; }
+
+dl.ip-ref-grid {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 4px 16px 10px;
+  font-size: 13px;
+}
+dl.ip-ref-grid dt {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+dl.ip-ref-grid dd {
+  margin: 0;
+  font-family: var(--serif);
+  color: var(--ink);
+  line-height: 1.45;
+}
+dl.ip-ref-grid dd code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--canvas-sunk);
+  padding: 0 4px;
+}
+
+.ip-ref-note {
+  padding: 8px 16px 12px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+  border-top: 1px solid var(--rule);
+}
 .CodeMirror-gutters { background: var(--canvas-sunk); border-right: 1px solid var(--rule); }
 .CodeMirror-linenumber { color: var(--ink-muted); font-size: 11px; }
 .cm-s-default .cm-keyword { color: var(--accent-ink); }
