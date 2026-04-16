@@ -165,6 +165,15 @@ window.JINJA_SNIPPETS = [
   { cat: 'IP helpers', name: 'compressed  (short v6 form)',
     body: '{{ $|$.compressed }}' },
 
+  { cat: 'IP helpers · math', name: 'first + N  (offset from first host)',
+    body: '{{ $|$.first + 1 }}' },
+  { cat: 'IP helpers · math', name: 'last - N  (offset from last host)',
+    body: '{{ $|$.last - 1 }}' },
+  { cat: 'IP helpers · math', name: 'network + N  (Nth address in subnet)',
+    body: '{{ $|$.network + 10 }}' },
+  { cat: 'IP helpers · math', name: 'distance (last - first)',
+    body: '{{ $|$.last - $|$.first }}' },
+
   // ========================================================================
   // Network idioms  (assume standard variable names — rename to taste)
   // ========================================================================

@@ -361,32 +361,113 @@ import ipaddress as _ipaddress
 
 _IP_TYPES = frozenset({'ipv4_address', 'ipv6_address', 'cidr'})
 
-class IPValue:
-    """Smart proxy around a user-entered IP string.
+class _IPAddr(str):
+    """A string subclass that also behaves as an IP address for arithmetic and
+    comparison. Renders identically to a plain string in `{{ x }}`, but supports:
 
-    Accepts bare addresses, CIDRs, and host-within-subnet specs. Parse failures
-    are tolerated: `str(IPValue(bad))` returns the original input; derived
-    attributes return ''. The Jinja render never crashes on a bad IP value.
+        {{ ip.first + 1 }}        → IP after the first usable
+        {{ ip.last - 1 }}         → IP before the last usable
+        {{ ip.last - ip.first }}  → integer distance (count)
+        {% if ip.first < ip.last %}   → correct numeric comparison (not lexicographic)
+
+    Equality with plain strings still works ({% if ip.first == '192.168.1.1' %}).
+    Invalid input falls back to inert-string behavior (no arithmetic).
     """
+    __slots__ = ('_ip',)
 
-    def __init__(self, raw):
-        self._raw = '' if raw is None else str(raw)
+    def __new__(cls, value):
+        s = str(value)
+        self = super().__new__(cls, s)
+        try:
+            self._ip = _ipaddress.ip_address(s)
+        except ValueError:
+            self._ip = None
+        return self
+
+    def _coerce(self, other):
+        """Normalize anything address-shaped into an ipaddress object, or None."""
+        if isinstance(other, (_ipaddress.IPv4Address, _ipaddress.IPv6Address)):
+            return other
+        if isinstance(other, (str, _IPAddr)):
+            try:
+                return _ipaddress.ip_address(str(other))
+            except ValueError:
+                return None
+        return None
+
+    # --- arithmetic ---
+    def __add__(self, other):
+        if self._ip is None or not isinstance(other, int):
+            return NotImplemented
+        try:
+            return _IPAddr(self._ip + other)
+        except Exception:
+            return NotImplemented
+    __radd__ = __add__
+
+    def __sub__(self, other):
+        if self._ip is None:
+            return NotImplemented
+        if isinstance(other, int):
+            try:
+                return _IPAddr(self._ip - other)
+            except Exception:
+                return NotImplemented
+        other_ip = self._coerce(other)
+        if other_ip is not None:
+            try:
+                return int(self._ip) - int(other_ip)
+            except Exception:
+                return NotImplemented
+        return NotImplemented
+
+    # --- IP-aware ordering (equality inherits from str, which matches IP text exactly) ---
+    def __lt__(self, other):
+        o = self._coerce(other)
+        if self._ip is None or o is None: return NotImplemented
+        return int(self._ip) < int(o)
+    def __le__(self, other):
+        o = self._coerce(other)
+        if self._ip is None or o is None: return NotImplemented
+        return int(self._ip) <= int(o)
+    def __gt__(self, other):
+        o = self._coerce(other)
+        if self._ip is None or o is None: return NotImplemented
+        return int(self._ip) > int(o)
+    def __ge__(self, other):
+        o = self._coerce(other)
+        if self._ip is None or o is None: return NotImplemented
+        return int(self._ip) >= int(o)
+
+
+class IPValue(str):
+    """A string subclass with IP helper attributes. Parse failures don't raise:
+    if the value doesn't look like an IP/CIDR, `.first`, `.netmask`, etc. all
+    return '' — but the object still behaves as its original string everywhere
+    else (str methods, comparisons, rendering).
+
+    This means templates can uniformly attempt `{{ var.first }}` without the
+    author having to know whether the field is typed as an IP. Non-IP values
+    gracefully produce empty strings for helper access while `{{ var }}` still
+    renders verbatim.
+    """
+    __slots__ = ('_iface', '_net', '_host')
+
+    def __new__(cls, raw):
+        s = '' if raw is None else str(raw)
+        self = super().__new__(cls, s)
         self._iface = None
         self._net = None
         self._host = None
-        if self._raw:
+        if s:
             try:
-                spec = self._raw if '/' in self._raw else f'{self._raw}/{32 if _ipaddress.ip_address(self._raw).version == 4 else 128}'
+                spec = s if '/' in s else f'{s}/{32 if _ipaddress.ip_address(s).version == 4 else 128}'
                 self._iface = _ipaddress.ip_interface(spec)
                 self._net = self._iface.network
                 self._host = self._iface.ip
             except ValueError:
                 pass
-
-    def __str__(self):     return self._raw
-    def __repr__(self):    return self._raw
-    def __bool__(self):    return bool(self._raw)
-    def __html__(self):    return self._raw  # Jinja safe-markup hook
+        return self
 
     def _safe(self, fn, v4_only=False):
         if self._net is None:
@@ -399,10 +480,12 @@ class IPValue:
             return ''
 
     # --- address / subnet identity ---
+    # Address-valued attributes return `_IPAddr` (str subclass) so arithmetic
+    # like `.first + 1` and IP-aware ordering work inside templates.
     @property
-    def address(self):   return self._safe(lambda: str(self._host))
+    def address(self):   return self._safe(lambda: _IPAddr(self._host))
     @property
-    def network(self):   return self._safe(lambda: str(self._net.network_address))
+    def network(self):   return self._safe(lambda: _IPAddr(self._net.network_address))
     @property
     def netmask(self):   return self._safe(lambda: str(self._net.netmask))
     @property
@@ -410,7 +493,7 @@ class IPValue:
     @property
     def hostmask(self):  return self.wildcard
     @property
-    def broadcast(self): return self._safe(lambda: str(self._net.broadcast_address), v4_only=True)
+    def broadcast(self): return self._safe(lambda: _IPAddr(self._net.broadcast_address), v4_only=True)
     @property
     def cidr(self):      return self._safe(lambda: str(self._net))
     @property
@@ -428,10 +511,10 @@ class IPValue:
             n = self._net
             full = 32 if n.version == 4 else 128
             if n.prefixlen == full:
-                return str(n.network_address)
+                return _IPAddr(n.network_address)
             if n.version == 4 and n.prefixlen == 31:
-                return str(list(n.hosts())[0])
-            return str(n.network_address + 1)
+                return _IPAddr(list(n.hosts())[0])
+            return _IPAddr(n.network_address + 1)
         return self._safe(_f)
 
     @property
@@ -440,12 +523,12 @@ class IPValue:
             n = self._net
             full = 32 if n.version == 4 else 128
             if n.prefixlen == full:
-                return str(n.network_address)
+                return _IPAddr(n.network_address)
             if n.version == 4:
                 if n.prefixlen == 31:
-                    return str(list(n.hosts())[-1])
-                return str(n.broadcast_address - 1)
-            return str(n.broadcast_address)
+                    return _IPAddr(list(n.hosts())[-1])
+                return _IPAddr(n.broadcast_address - 1)
+            return _IPAddr(n.broadcast_address)
         return self._safe(_l)
 
     @property
@@ -576,6 +659,16 @@ NETWORK_PATTERNS = {
     'hostname':     r'^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$',
 }
 
+# Shown as inline "e.g. X" next to the field label — NOT as a placeholder
+# inside the input (which would look like a pre-filled value).
+NETWORK_EXAMPLES = {
+    'ipv4_address': '192.168.1.1',
+    'ipv6_address': '2001:db8::1',
+    'cidr':         '10.0.0.0/24',
+    'mac_address':  'aa:bb:cc:dd:ee:ff',
+    'hostname':     'host.example.com',
+}
+
 FIELD_TYPES = [
     # (value, label, group, sections, multi)
     ('text',           'Text',                 'Core',    {'textbox'},  False),
@@ -656,6 +749,7 @@ def inject_field_types():
         FIELD_TYPES=FIELD_TYPES,
         FIELD_TYPE_GROUPS=groups,
         NETWORK_PATTERNS=NETWORK_PATTERNS,
+        NETWORK_EXAMPLES=NETWORK_EXAMPLES,
     )
 
 # One-time additive schema patches for SQLite: add columns if missing.
@@ -2161,10 +2255,11 @@ def workbench_run(script_id):
             form_data[f.name] = request.form.getlist(f.name)
         elif f.field_type == 'checkbox':
             form_data[f.name] = bool(request.form.get(f.name))
-        elif f.field_type in _IP_TYPES:
-            form_data[f.name] = IPValue(request.form.get(f.name, ''))
         else:
-            form_data[f.name] = request.form.get(f.name, '')
+            # Every scalar gets IPValue-wrapped. For non-IP strings the class
+            # still behaves as a plain string; for IP-shaped strings, .first /
+            # .netmask / etc. just work regardless of the declared field type.
+            form_data[f.name] = IPValue(request.form.get(f.name, ''))
     try:
         tmpl = jinja2.Template(script.template.content if script.template else '')
         output = tmpl.render(**form_data)
@@ -2369,17 +2464,23 @@ def wb_add_variable_field(script_id):
     last = FormField.query.filter_by(script_id=script_id).order_by(FormField.display_order.desc()).first()
     order = (last.display_order + 10) if last else 10
     label = varname.replace('_', ' ').title()
+
+    # Inspect the current template — if the variable is referenced via any known
+    # IP-helper attribute (e.g. `{{ varname.first }}`, `{{ varname.netmask }}`),
+    # default to `cidr` so the IP helpers actually work. Otherwise `text`.
+    inferred_type = _infer_field_type_from_template(script, varname)
+
     field = FormField(
         script_id=script_id,
         name=varname,
         label=label,
-        field_type='text',
+        field_type=inferred_type,
         required=False,
         display_order=order,
     )
     db.session.add(field)
     _log_change(script_id, 'field_add', field_name=varname,
-                new=f'{label} (text)',
+                new=f'{label} ({inferred_type})',
                 description=f'Auto-added field from template variable "{varname}"')
     db.session.commit()
     return jsonify({'success': True, 'field_id': field.id, 'name': varname, 'label': label})
@@ -2601,6 +2702,72 @@ def wb_import_commit():
     return redirect(url_for('workbench', script_id=script.id))
 
 
+_IP_ATTR_DESCS = {
+    'address':         'host IP, no mask',
+    'network':         'network address',
+    'netmask':         'dotted-decimal subnet mask',
+    'wildcard':        'inverse mask (IPv4 only)',
+    'hostmask':        'alias of wildcard',
+    'broadcast':       'broadcast address (IPv4 only)',
+    'cidr':            'network in addr/prefix form',
+    'host_cidr':       'host in addr/prefix form',
+    'prefix':          'prefix length as integer',
+    'first':           'first usable host',
+    'last':            'last usable host',
+    'hosts':           'count of usable hosts',
+    'size':            'total addresses in subnet',
+    'version':         '4 or 6',
+    'is_private':      'True if private / RFC1918 / ULA',
+    'is_global':       'True if globally routable',
+    'is_loopback':     'True if loopback',
+    'is_multicast':    'True if multicast',
+    'is_link_local':   'True if link-local',
+    'reverse_pointer': 'DNS PTR name',
+    'exploded':        'long form (useful for IPv6)',
+    'compressed':      'short form (useful for IPv6)',
+}
+
+def _infer_field_type_from_template(script, varname):
+    """Guess the field type from how the variable is used in the current template.
+    If any IP-helper attribute is referenced (e.g. `var.first`, `var.netmask`),
+    return `'cidr'` — otherwise `'text'`. Used when auto-adding fields so IP
+    helpers actually work without a manual type change."""
+    if script.template is None:
+        return 'text'
+    try:
+        from jinja2 import Environment, nodes
+        ast = Environment().parse(script.template.content or '')
+    except Exception:
+        return 'text'
+    ip_attrs = set(_IP_ATTR_DESCS.keys())
+    for node in ast.find_all(nodes.Getattr):
+        base = node.node
+        while isinstance(base, nodes.Getattr):
+            base = base.node
+        if isinstance(base, nodes.Name) and base.name == varname and node.attr in ip_attrs:
+            return 'cidr'
+    return 'text'
+
+def _analyze_template_refs(content):
+    """Walk the template AST and collect every variable + attribute reference.
+    Returns (top_vars: set[str], attr_refs: dict[str, set[str]]).
+    Loop-local names (e.g. `site` in `{% for site in sites %}`) are excluded."""
+    from jinja2 import Environment, meta, nodes
+    try:
+        ast = Environment().parse(content or '')
+    except Exception:
+        return set(), {}
+    top_vars = set(meta.find_undeclared_variables(ast))
+    attr_refs = {}  # var -> set of attrs referenced
+    for node in ast.find_all(nodes.Getattr):
+        base = node.node
+        while isinstance(base, nodes.Getattr):
+            base = base.node
+        if isinstance(base, nodes.Name) and base.name in top_vars:
+            attr_refs.setdefault(base.name, set()).add(node.attr)
+    return top_vars, attr_refs
+
+
 @app.route('/workbench/<int:script_id>/export-template')
 @maybe_login_required
 def wb_export_template(script_id):
@@ -2608,16 +2775,68 @@ def wb_export_template(script_id):
     if script.template is None:
         flash('No template to export.')
         return redirect(url_for('workbench', script_id=script_id, tab='template'))
-    lines = []
-    if script.form_fields:
-        lines.append('# Template Variables')
-        lines.append('# =================')
-        for f in sorted(script.form_fields, key=lambda x: x.display_order):
-            lines.append(f'# {f.name} — {{{{ {f.name} }}}}')
-        lines.append('')
-    body = '\n'.join(lines) + (script.template.content or '')
+
+    content = script.template.content or ''
+    top_vars, attr_refs = _analyze_template_refs(content)
+    fields = {f.name: f for f in script.form_fields}
+
+    header = []
+    header.append('# ' + '=' * 64)
+    header.append(f'# {script.name}   (#{script.id:04d})')
+    header.append(f'# Exported {_utcnow().strftime("%Y-%m-%d %H:%M:%S")} UTC')
+    header.append('#')
+    header.append('# This is a search-and-replace script. Each <<placeholder>> below')
+    header.append('# marks a value to fill in. Use your editor\'s Find & Replace to')
+    header.append('# substitute each one. Order does not matter; uniqueness does.')
+    header.append('# ' + '-' * 64)
+
+    if not top_vars:
+        header.append('# (this template references no variables)')
+    else:
+        header.append('# Placeholders to fill in:')
+        header.append('#')
+        for var in sorted(top_vars):
+            f = fields.get(var)
+            is_ip = bool(f and f.field_type in _IP_TYPES)
+            label = (f.label if f else var).strip()
+            deflt = f' — default "{f.default_value}"' if (f and f.default_value) else ''
+            kind = f.field_type if f else 'text'
+
+            header.append(f'#   <<{var}>>')
+            if f:
+                header.append(f'#       {label}   [{kind}]{deflt}')
+            else:
+                header.append(f'#       ( no form field definition found )')
+
+            # Attributes referenced on this variable.
+            for attr in sorted(attr_refs.get(var, set())):
+                if is_ip:
+                    desc = _IP_ATTR_DESCS.get(attr, 'IP helper')
+                    header.append(f'#     <<{var}.{attr}>>   — {desc}')
+                else:
+                    header.append(f'#     <<{var}.{attr}>>   — nested attribute')
+            header.append('#')
+
+    # Callouts the engineer should actually read.
+    any_control_flow = bool(re.search(r'\{%\s*(if|for|elif|else|endif|endfor|set|with)\b', content))
+    if any_control_flow:
+        header.append('# NOTE: This template contains control-flow blocks '
+                      '({% if %}, {% for %}, etc.) left')
+        header.append('#       as-is below. Keep, remove, or unroll each block manually '
+                      'for your context.')
+        header.append('# ' + '-' * 64)
+    header.append('# ' + '=' * 64)
+    header.append('')
+
+    # Rewrite {{ var }} and {{ var.attr }} in the body to <<placeholder>> form.
+    # Leave {% ... %} control flow untouched — that's context-dependent editing.
+    body = content
+    body = re.sub(r'\{\{\s*(\w+)\.(\w+)\s*\}\}', r'<<\1.\2>>', body)
+    body = re.sub(r'\{\{\s*(\w+)\s*\}\}',         r'<<\1>>',     body)
+
+    out = '\n'.join(header) + body
     safe = _safe_filename(script.name, f'script_{script_id}')
-    return _text_download(body, f'{safe}_template.txt')
+    return _text_download(out, f'{safe}_template.txt')
 
 @app.route('/workbench/<int:script_id>/csv-template')
 @maybe_login_required
@@ -2769,7 +2988,9 @@ def wb_bulk_generate(script_id):
         form_data = {}
         for f in fields:
             raw = (request.form.get(f'r{i}_{f.name}') or '').strip()
-            form_data[f.name] = IPValue(raw) if f.field_type in _IP_TYPES else raw
+            # Uniform wrap: IP helpers work on any string that parses as IP,
+            # regardless of declared field type.
+            form_data[f.name] = IPValue(raw)
         kept.append(form_data)
 
     if not kept:

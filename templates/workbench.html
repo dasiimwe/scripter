@@ -656,6 +656,22 @@
                   <dt>.exploded</dt>        <dd>Long form — useful for IPv6 logging</dd>
                   <dt>.compressed</dt>      <dd>Short form — useful for IPv6 config</dd>
                 </dl>
+                <div class="ip-ref-section">Arithmetic</div>
+                <dl class="ip-ref-grid">
+                  <dt><code>{% raw %}{{ ip.first + 1 }}{% endraw %}</code></dt>
+                  <dd>IP after the first usable host</dd>
+                  <dt><code>{% raw %}{{ ip.last - 1 }}{% endraw %}</code></dt>
+                  <dd>IP before the last usable host</dd>
+                  <dt><code>{% raw %}{{ ip.network + 10 }}{% endraw %}</code></dt>
+                  <dd>10th address in the subnet (for DHCP ranges, reservations, etc.)</dd>
+                  <dt><code>{% raw %}{{ ip.last - ip.first }}{% endraw %}</code></dt>
+                  <dd>Integer distance between two IPs</dd>
+                  <dt><code>{% raw %}{% if ip.first &lt; some_other %}{% endraw %}</code></dt>
+                  <dd>IP-aware comparison (not lexicographic)</dd>
+                </dl>
+                <div class="ip-ref-note" style="font-style:normal;color:var(--ink-mid);font-family:var(--mono);font-size:11px;letter-spacing:0.05em">
+                  Arithmetic works on <code>.address</code>, <code>.network</code>, <code>.first</code>, <code>.last</code>, <code>.broadcast</code>. Other attributes are plain strings.
+                </div>
                 <div class="ip-ref-note">
                   Invalid input renders the raw string verbatim; derived attributes return an empty string rather than raising.
                 </div>
@@ -1029,8 +1045,7 @@
 
             {% elif f.field_type in ('ipv4_address','ipv6_address','cidr','mac_address','hostname') %}
               <input type="text" name="{{ f.name }}" value="{{ dv }}"{{ req }}
-                     pattern="{{ NETWORK_PATTERNS.get(f.field_type, '') }}"
-                     placeholder="{% if f.field_type=='ipv4_address' %}192.168.1.1{% elif f.field_type=='ipv6_address' %}2001:db8::1{% elif f.field_type=='cidr' %}10.0.0.0/24{% elif f.field_type=='mac_address' %}aa:bb:cc:dd:ee:ff{% else %}host.example.com{% endif %}">
+                     pattern="{{ NETWORK_PATTERNS.get(f.field_type, '') }}">
 
             {% else %}
               <input type="text" name="{{ f.name }}" value="{{ dv }}"{{ req }}
@@ -1044,7 +1059,12 @@
             {% for f in fields %}
               <div class="field">
                 {% if f.field_type != 'checkbox' %}
-                  <label>{{ f.label }}{% if f.required %} *{% endif %}</label>
+                  <label>
+                    {{ f.label }}{% if f.required %} *{% endif %}
+                    {% if f.field_type in NETWORK_EXAMPLES %}
+                      <span class="format-hint">e.g. {{ NETWORK_EXAMPLES[f.field_type] }}</span>
+                    {% endif %}
+                  </label>
                 {% endif %}
                 {{ render_run_field(f) }}
                 {% if f.field_type == 'checkbox' %}
