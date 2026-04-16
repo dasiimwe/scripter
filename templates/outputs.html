@@ -57,6 +57,9 @@
             <td class="meta">{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
             <td class="meta">{{ o.modified_at.strftime('%Y-%m-%d %H:%M') }}</td>
             <td class="out-actions">
+              {% if o.original_script %}
+              <a href="{{ url_for('workbench', script_id=o.original_script.id, tab='run', prefill=o.id) }}">re-run</a>
+              {% endif %}
               <a href="{{ url_for('outputs_view', output_id=o.id) }}">view</a>
               <a href="{{ url_for('outputs_edit', output_id=o.id) }}">edit</a>
               <a href="{{ url_for('outputs_download', output_id=o.id) }}">download</a>

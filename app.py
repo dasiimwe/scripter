@@ -2119,6 +2119,22 @@ def workbench(script_id=None):
             q = q.filter(GeneratedScript.user_id == uid)
         script_outputs = q.order_by(GeneratedScript.created_at.desc()).limit(50).all()
 
+    # Pre-fill Run form from a past output ( ?prefill=<output_id> )
+    preset_values = None
+    preset_source = None
+    if selected and tab == 'run':
+        prefill_id = request.args.get('prefill', type=int)
+        if prefill_id:
+            src = GeneratedScript.query.get(prefill_id)
+            if src and src.original_script_id == selected.id:
+                uid = current_user.id if current_user.is_authenticated else None
+                if _viewer_sees_all() or src.user_id == uid:
+                    try:
+                        preset_values = json.loads(src.csv_row_data or '{}')
+                        preset_source = src
+                    except Exception:
+                        preset_values = None
+
     return render_template(
         'workbench.html',
         rail=rail,
@@ -2128,6 +2144,8 @@ def workbench(script_id=None):
         selected=selected,
         tab=tab,
         script_outputs=script_outputs,
+        preset_values=preset_values,
+        preset_source=preset_source,
     )
 
 @app.route('/workbench/new', methods=['POST'])

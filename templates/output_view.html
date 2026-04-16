@@ -16,6 +16,10 @@
   </header>
 
   <div class="output-view-actions">
+    {% if output.original_script %}
+    <a href="{{ url_for('workbench', script_id=output.original_script.id, tab='run', prefill=output.id) }}"
+       class="btn btn-primary">Re-run with these values</a>
+    {% endif %}
     <a href="{{ url_for('outputs_edit', output_id=output.id) }}" class="btn">Edit</a>
     <a href="{{ url_for('outputs_download', output_id=output.id) }}" class="btn btn-ghost">Download .txt</a>
     <a href="{{ url_for('outputs_list') }}" class="btn btn-ghost">Back to list</a>

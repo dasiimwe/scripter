@@ -949,12 +949,26 @@
             <p class="readonly-note">Add form fields first, then bulk-generate will be available.</p>
           {% endif %}
         {% elif fields %}
-          {% macro render_run_field(f) %}
+          {% macro render_run_field(f, initial=None) %}
             {% set cfg = (f.field_config or '{}')|from_json %}
             {% set req = ' required' if f.required else '' %}
             {% set ph  = (' placeholder="' ~ cfg.get('placeholder','') ~ '"') if cfg.get('placeholder') else '' %}
-            {% set dv  = f.default_value or '' %}
-            {% set defaults_list = dv.split(',') if dv else [] %}
+            {# dv: per-field initial value. Prefer explicit override (from a prefill),
+               then field default. For multi-value fields, accept either a list or
+               a comma-separated string. #}
+            {% if initial is not none %}
+              {% set dv = initial %}
+            {% else %}
+              {% set dv = f.default_value or '' %}
+            {% endif %}
+            {% if dv is iterable and dv is not string and dv is not mapping %}
+              {% set defaults_list = dv %}
+              {% set dv = dv|join(',') %}
+            {% elif dv %}
+              {% set defaults_list = dv.split(',') %}
+            {% else %}
+              {% set defaults_list = [] %}
+            {% endif %}
 
             {% if f.field_type == 'textarea' %}
               <textarea name="{{ f.name }}"{{ req }} rows="{{ cfg.get('rows', 4) }}"{{ ph|safe }}>{{ dv }}</textarea>
@@ -1037,9 +1051,10 @@
               </div>
 
             {% elif f.field_type == 'checkbox' %}
+              {% set cb_checked = (dv|string|lower) in ('1', 'true', 'yes', 'on') %}
               <div class="single-check">
                 <label><input type="checkbox" name="{{ f.name }}" value="1"
-                              {% if dv in ('1', 'true', 'yes', 'on') %}checked{% endif %}>
+                              {% if cb_checked %}checked{% endif %}>
                   Yes</label>
               </div>
 
@@ -1053,10 +1068,21 @@
             {% endif %}
           {% endmacro %}
 
+          {% if preset_source %}
+            <div class="prefill-banner">
+              <span>
+                Prefilled from output
+                <a href="{{ url_for('outputs_view', output_id=preset_source.id) }}" class="mono">№{{ '%06d' % preset_source.id }}</a>
+                <span class="mono" style="color:var(--ink-muted)"> · generated {{ preset_source.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+              </span>
+              <a href="{{ url_for('workbench', script_id=selected.id, tab='run') }}" class="prefill-clear">Clear</a>
+            </div>
+          {% endif %}
           <form hx-post="{{ url_for('workbench_run', script_id=selected.id) }}"
                 hx-target="#run-output" hx-swap="innerHTML"
                 data-ip-helper-scope data-ip-helper-url="{{ url_for('api_ip_helper') }}">
             {% for f in fields %}
+              {% set initial = preset_values.get(f.name) if preset_values else none %}
               <div class="field">
                 {% if f.field_type != 'checkbox' %}
                   <label>
@@ -1066,7 +1092,7 @@
                     {% endif %}
                   </label>
                 {% endif %}
-                {{ render_run_field(f) }}
+                {{ render_run_field(f, initial=initial) }}
                 {% if f.field_type == 'checkbox' %}
                   <div class="hint" style="margin-top:4px">{{ f.label }}{% if f.required %} *{% endif %}</div>
                 {% endif %}
@@ -1119,6 +1145,7 @@
                   <td>{% if o.batch_id %}<span class="batch">{{ o.batch_id }}</span>{% else %}—{% endif %}</td>
                   <td class="meta">{{ o.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                   <td class="out-actions">
+                    <a href="{{ url_for('workbench', script_id=selected.id, tab='run', prefill=o.id) }}">re-run</a>
                     <a href="{{ url_for('outputs_view', output_id=o.id) }}">view</a>
                     <a href="{{ url_for('outputs_edit', output_id=o.id) }}">edit</a>
                     <a href="{{ url_for('outputs_download', output_id=o.id) }}">download</a>
