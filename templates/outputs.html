@@ -25,6 +25,16 @@
   </form>
 
   {% if outputs %}
+    <form id="zip-form" method="post" action="{{ url_for('outputs_download_zip') }}" class="outputs-bulk">
+      <input type="hidden" name="search" value="{{ search }}">
+      <input type="hidden" name="batch" value="{{ batch }}">
+      <input type="hidden" name="script_id" value="{{ script_id or '' }}">
+      <button type="submit" id="dl-selected" class="btn btn-ghost" disabled>Download selected (zip)</button>
+      <button type="submit" name="select_all" value="1" class="btn btn-ghost">
+        {% if batch %}Download batch (zip){% else %}Download all{% if pagination.total %} {{ pagination.total }}{% endif %} (zip){% endif %}
+      </button>
+    </form>
+
     <table class="outputs">
       {% macro sort_th(key, label, width='auto') -%}
         {% set is_sorted = current_sort == key %}
@@ -37,6 +47,7 @@
         </th>
       {%- endmacro %}
       <thead><tr>
+        <th style="width:3%"><input type="checkbox" id="check-all" title="Select all on this page"></th>
         {{ sort_th('name',        'Name') }}
         {{ sort_th('batch',       'Batch', '10%') }}
         <th style="width:15%">Source script</th>
@@ -47,6 +58,7 @@
       <tbody>
         {% for o in outputs %}
           <tr>
+            <td><input type="checkbox" class="row-check" name="ids" value="{{ o.id }}" form="zip-form"></td>
             <td class="name"><a href="{{ url_for('outputs_view', output_id=o.id) }}">{{ o.name }}</a></td>
             <td>{% if o.batch_id %}<span class="batch">{{ o.batch_id }}</span>{% else %}—{% endif %}</td>
             <td class="meta">
@@ -94,4 +106,23 @@
     <div class="outputs-empty">No outputs match. Generate one from a script's Run tab.</div>
   {% endif %}
 </div>
+
+<script>
+(function () {
+  var all  = document.getElementById('check-all');
+  var rows = Array.prototype.slice.call(document.querySelectorAll('.row-check'));
+  var dl   = document.getElementById('dl-selected');
+  function sync() {
+    var any = rows.some(function (c) { return c.checked; });
+    if (dl)  dl.disabled  = !any;
+    if (all) all.checked  = rows.length > 0 && rows.every(function (c) { return c.checked; });
+  }
+  if (all) all.addEventListener('change', function () {
+    rows.forEach(function (c) { c.checked = all.checked; });
+    sync();
+  });
+  rows.forEach(function (c) { c.addEventListener('change', sync); });
+  sync();
+})();
+</script>
 {% endblock %}

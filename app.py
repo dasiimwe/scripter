@@ -22,6 +22,7 @@ import difflib
 import re
 import csv as _csv
 import io
+import zipfile
 # from flask_wtf.csrf import CSRFProtect
 
 # Create instance directory if it doesn't exist
@@ -638,6 +639,31 @@ def _text_download(body, filename, mime='text/plain'):
     resp = make_response(body)
     resp.headers['Content-Type'] = f'{mime}; charset=utf-8'
     resp.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return resp
+
+# Upper bound on how many outputs we'll bundle into a single in-memory zip,
+# to avoid a runaway request ballooning memory.
+MAX_ZIP_OUTPUTS = 2000
+
+def _zip_download(outputs, zip_name):
+    """Bundle GeneratedScript rows into a .zip, one .txt per output.
+
+    Filenames reuse the single-download scheme (`_safe_filename` + `.txt`);
+    duplicates get a numeric suffix so the archive never collides.
+    """
+    buf = io.BytesIO()
+    seen = {}
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for out in outputs:
+            base = _safe_filename(out.name, f'output_{out.id}')
+            n = seen.get(base, 0) + 1
+            seen[base] = n
+            fname = f'{base}.txt' if n == 1 else f'{base}_{n}.txt'
+            zf.writestr(fname, out.generated_content or '')
+    buf.seek(0)
+    resp = make_response(buf.getvalue())
+    resp.headers['Content-Type'] = 'application/zip'
+    resp.headers['Content-Disposition'] = f'attachment; filename="{zip_name}"'
     return resp
 
 # ---------------------------------------------------------------------------
@@ -3048,6 +3074,23 @@ def wb_bulk_generate(script_id):
     flash('No scripts were generated.')
     return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
 
+def _filtered_outputs_query(search, batch, script_id):
+    """Ownership- and filter-scoped query over GeneratedScript.
+
+    Single source of truth shared by the outputs list and the zip download,
+    so the two can never disagree about which rows a viewer may see.
+    """
+    q = GeneratedScript.query
+    if not _viewer_sees_all():
+        q = q.filter(GeneratedScript.user_id == current_user.id)
+    if search:
+        q = q.filter(GeneratedScript.name.ilike(f'%{search}%'))
+    if batch:
+        q = q.filter(GeneratedScript.batch_id == batch)
+    if script_id:
+        q = q.filter(GeneratedScript.original_script_id == script_id)
+    return q
+
 @app.route('/outputs')
 @maybe_login_required
 def outputs_list():
@@ -3059,16 +3102,7 @@ def outputs_list():
     batch      = (request.args.get('batch') or '').strip()
     script_id  = request.args.get('script_id', type=int)
 
-    q = GeneratedScript.query
-    if not _viewer_sees_all():
-        q = q.filter(GeneratedScript.user_id == current_user.id)
-    if search:
-        pat = f'%{search}%'
-        q = q.filter(GeneratedScript.name.ilike(pat))
-    if batch:
-        q = q.filter(GeneratedScript.batch_id == batch)
-    if script_id:
-        q = q.filter(GeneratedScript.original_script_id == script_id)
+    q = _filtered_outputs_query(search, batch, script_id)
 
     columns = {
         'name':        GeneratedScript.name,
@@ -3086,6 +3120,7 @@ def outputs_list():
         pagination=pagination,
         search=search,
         batch=batch,
+        script_id=script_id,
         per_page=per_page,
         current_sort=sort_by,
         current_order=order,
@@ -3131,6 +3166,41 @@ def outputs_download(output_id):
         return redirect(url_for('outputs_list'))
     safe = _safe_filename(out.name, f'output_{output_id}')
     return _text_download(out.generated_content, f'{safe}.txt')
+
+@app.route('/outputs/download-zip', methods=['GET', 'POST'])
+@maybe_login_required
+def outputs_download_zip():
+    """Bundle multiple outputs into a single .zip.
+
+    Two input modes, both ownership-scoped:
+      * filter mode  — `select_all` set (or any GET): every row matching the
+        current search/batch/script_id filter, across all pages.
+      * id mode      — POST without `select_all`: just the checked `ids`.
+    """
+    src        = request.form if request.method == 'POST' else request.args
+    select_all = src.get('select_all') == '1'
+    search     = (src.get('search') or '').strip()
+    batch      = (src.get('batch') or '').strip()
+    script_id  = src.get('script_id', type=int)
+
+    if request.method == 'GET' or select_all:
+        outputs = _filtered_outputs_query(search, batch, script_id) \
+            .order_by(GeneratedScript.created_at.desc()).all()
+    else:
+        ids = [int(i) for i in src.getlist('ids') if str(i).isdigit()]
+        outputs = _filtered_outputs_query('', '', None) \
+            .filter(GeneratedScript.id.in_(ids)).all() if ids else []
+
+    if not outputs:
+        flash('No outputs selected.')
+        return redirect(url_for('outputs_list', search=search, batch=batch, script_id=script_id))
+    if len(outputs) > MAX_ZIP_OUTPUTS:
+        flash(f'Too many outputs to zip at once ({len(outputs)}). '
+              f'Narrow the filter to {MAX_ZIP_OUTPUTS} or fewer.')
+        return redirect(url_for('outputs_list', search=search, batch=batch, script_id=script_id))
+
+    zip_name = f'batch_{batch}.zip' if batch else 'outputs.zip'
+    return _zip_download(outputs, zip_name)
 
 @app.route('/outputs/<int:output_id>/delete', methods=['POST'])
 @maybe_login_required
