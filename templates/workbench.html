@@ -180,7 +180,8 @@
             <div class="field-row">
               <div class="field">
                 <label>Name</label>
-                <input type="text" name="name" value="{{ selected.name }}" required>
+                <input type="text" name="name" value="{{ selected.name }}" required
+                       {% if request.args.get('focus') == 'name' %}id="focus-name" autofocus{% endif %}>
               </div>
               <div class="field">
                 <label>Status</label>
@@ -216,6 +217,7 @@
             <div class="actions">
               <button type="submit" class="btn">Save details</button>
               <a href="{{ url_for('wb_export_script', script_id=selected.id) }}" class="btn btn-ghost">Export</a>
+              <button type="submit" form="dup-form" class="btn btn-ghost">Duplicate</button>
               <button type="submit" class="btn btn-danger"
                       formaction="{{ url_for('workbench_delete', script_id=selected.id) }}"
                       onclick="return confirm('Delete this script and all its fields + submissions? This cannot be undone.');">
@@ -223,6 +225,17 @@
               </button>
             </div>
           </form>
+
+          <!-- Duplicates the SAVED script as "<name> (copy)"; user renames on the new Details tab. -->
+          <form id="dup-form" method="post" action="{{ url_for('workbench_duplicate', script_id=selected.id) }}"></form>
+          {% if request.args.get('focus') == 'name' %}
+          <script>
+            (function () {
+              var el = document.getElementById('focus-name');
+              if (el) { el.focus(); el.select(); }
+            })();
+          </script>
+          {% endif %}
           <script src="{{ url_for('static', filename='vendor/trix/trix.umd.min.js') }}"></script>
           <script>
             addEventListener('trix-file-accept', function (e) { e.preventDefault(); });

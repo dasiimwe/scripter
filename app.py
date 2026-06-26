@@ -2232,6 +2232,28 @@ def workbench_delete(script_id):
     flash(f'Deleted "{script.name}".')
     return redirect(url_for('workbench'))
 
+@app.route('/workbench/<int:script_id>/duplicate', methods=['POST'])
+@maybe_login_required
+def workbench_duplicate(script_id):
+    """Clone a script (template + all form fields) into a new draft.
+
+    Reuses the export/import round-trip so the copy logic never drifts from
+    it: a fresh UUID, a new template, and every field copied. The user names
+    the copy; submissions, generated outputs, and history are not carried over.
+    """
+    script = Script.query.get_or_404(script_id)
+    guard = _guard_edit(script)
+    if guard:
+        return guard
+    new_name = (request.form.get('name') or '').strip() or f'{script.name} (copy)'
+    new_script, _ = _import_script_from_dict(
+        _export_script_dict(script), target=None, user=current_user)
+    new_script.name = new_name[:100]
+    db.session.commit()
+    flash(f'Duplicated "{script.name}". Rename the copy below and save.')
+    # focus=name → land on Details with the name field focused & selected, ready to rename.
+    return redirect(url_for('workbench', script_id=new_script.id, tab='details', focus='name'))
+
 @app.route('/workbench/<int:script_id>/details', methods=['POST'])
 @maybe_login_required
 def workbench_save_details(script_id):
