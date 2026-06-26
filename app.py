@@ -635,6 +635,33 @@ def _safe_filename(name, fallback):
     """Make a filesystem-friendly filename component from user-supplied text."""
     return re.sub(r'[^A-Za-z0-9._-]+', '_', name or '') or fallback
 
+def _content_snippet(content, term, radius=80):
+    """Safe HTML excerpt around the first case-insensitive match of `term`.
+
+    Each occurrence in the window is wrapped in <mark>. Text pieces and matched
+    text are escaped separately, so a term containing HTML characters cannot
+    break out of the markup. Returns a Markup, or None when there's no match.
+    """
+    from markupsafe import escape, Markup
+    if not term or not content:
+        return None
+    pos = content.lower().find(term.lower())
+    if pos == -1:
+        return None
+    start = max(0, pos - radius)
+    end = min(len(content), pos + len(term) + radius)
+    excerpt = content[start:end]
+    pattern = re.compile(re.escape(term), re.IGNORECASE)
+    parts, last = [], 0
+    for m in pattern.finditer(excerpt):
+        parts.append(str(escape(excerpt[last:m.start()])))
+        parts.append('<mark>' + str(escape(m.group(0))) + '</mark>')
+        last = m.end()
+    parts.append(str(escape(excerpt[last:])))
+    prefix = '…' if start > 0 else ''
+    suffix = '…' if end < len(content) else ''
+    return Markup(prefix + ''.join(parts) + suffix)
+
 def _text_download(body, filename, mime='text/plain'):
     resp = make_response(body)
     resp.headers['Content-Type'] = f'{mime}; charset=utf-8'
@@ -3074,17 +3101,27 @@ def wb_bulk_generate(script_id):
     flash('No scripts were generated.')
     return redirect(url_for('workbench', script_id=script_id, tab='run', mode='bulk'))
 
-def _filtered_outputs_query(search, batch, script_id):
+def _filtered_outputs_query(search, batch, script_id, search_content=False):
     """Ownership- and filter-scoped query over GeneratedScript.
 
     Single source of truth shared by the outputs list and the zip download,
     so the two can never disagree about which rows a viewer may see.
+
+    When `search_content` is set, the search term matches the output name OR
+    the generated content; otherwise it matches the name only.
     """
     q = GeneratedScript.query
     if not _viewer_sees_all():
         q = q.filter(GeneratedScript.user_id == current_user.id)
     if search:
-        q = q.filter(GeneratedScript.name.ilike(f'%{search}%'))
+        pat = f'%{search}%'
+        if search_content:
+            q = q.filter(sqlalchemy.or_(
+                GeneratedScript.name.ilike(pat),
+                GeneratedScript.generated_content.ilike(pat),
+            ))
+        else:
+            q = q.filter(GeneratedScript.name.ilike(pat))
     if batch:
         q = q.filter(GeneratedScript.batch_id == batch)
     if script_id:
@@ -3099,10 +3136,11 @@ def outputs_list():
     sort_by    = request.args.get('sort', 'created_at')
     order      = request.args.get('order', 'desc')
     search     = (request.args.get('search') or '').strip()
+    search_content = request.args.get('search_content') == '1'
     batch      = (request.args.get('batch') or '').strip()
     script_id  = request.args.get('script_id', type=int)
 
-    q = _filtered_outputs_query(search, batch, script_id)
+    q = _filtered_outputs_query(search, batch, script_id, search_content)
 
     columns = {
         'name':        GeneratedScript.name,
@@ -3114,11 +3152,15 @@ def outputs_list():
     q = q.order_by(col.desc() if order == 'desc' else col.asc())
 
     pagination = q.paginate(page=page, per_page=per_page, error_out=False)
+    if search and search_content:
+        for o in pagination.items:
+            o.content_snippet = _content_snippet(o.generated_content, search)
     return render_template(
         'outputs.html',
         outputs=pagination.items,
         pagination=pagination,
         search=search,
+        search_content=search_content,
         batch=batch,
         script_id=script_id,
         per_page=per_page,
@@ -3180,11 +3222,12 @@ def outputs_download_zip():
     src        = request.form if request.method == 'POST' else request.args
     select_all = src.get('select_all') == '1'
     search     = (src.get('search') or '').strip()
+    search_content = src.get('search_content') == '1'
     batch      = (src.get('batch') or '').strip()
     script_id  = src.get('script_id', type=int)
 
     if request.method == 'GET' or select_all:
-        outputs = _filtered_outputs_query(search, batch, script_id) \
+        outputs = _filtered_outputs_query(search, batch, script_id, search_content) \
             .order_by(GeneratedScript.created_at.desc()).all()
     else:
         ids = [int(i) for i in src.getlist('ids') if str(i).isdigit()]
